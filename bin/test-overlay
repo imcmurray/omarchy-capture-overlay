@@ -11,6 +11,14 @@ ok() { echo "PASS  $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
 info() { echo "INFO  $*"; }
 
+# Unit tests first — they do not need the shell.
+if ! "$PLUGIN_DIR/bin/test-core"; then
+  echo
+  echo "=== core tests failed; skipping live overlay checks ==="
+  exit 1
+fi
+echo
+
 layers_json() { hyprctl layers -j 2>/dev/null; }
 
 has_ns() {
@@ -44,7 +52,18 @@ print('ABSENT')
 " "$ns"
 }
 
-echo "=== capture overlay tests $(date) ==="
+parse_menu() {
+  python3 - <<'PY'
+import json, re, pathlib
+p = pathlib.Path.home() / ".config/omarchy/extensions/omarchy-menu.jsonc"
+raw = re.sub(r"/\*.*?\*/", "", p.read_text(), flags=re.S)
+raw = re.sub(r"^\s*//.*$", "", raw, flags=re.M)
+raw = re.sub(r",(\s*[}\]])", r"\1", raw)
+json.dump(json.loads(raw), open("/tmp/ianm-menu.json", "w"))
+PY
+}
+
+echo "=== capture overlay live tests $(date) ==="
 
 # 1. Overlay IPC
 state=$(omarchy-shell capture-overlay state 2>&1) || true
@@ -62,8 +81,13 @@ if has_ns ianm-cam-preview; then
 else
   ok "no camera preview layer while idle"
 fi
+if has_ns ianm-capture-countdown; then
+  bad "ianm-capture-countdown is mapped while idle ($(layer_size ianm-capture-countdown))"
+else
+  ok "no countdown layer while idle"
+fi
 
-# 3. Webcam hardware + scripts
+# 3. Webcam hardware + scripts + menu
 if omarchy-hw-webcam; then
   ok "omarchy-hw-webcam sees a camera"
 else
@@ -71,17 +95,26 @@ else
 fi
 [[ -x $PLUGIN_DIR/record.sh ]] && ok "record.sh executable" || bad "record.sh missing"
 [[ -x $PLUGIN_DIR/pick.sh ]] && ok "pick.sh executable" || bad "pick.sh missing"
-python3 -c 'import json,pathlib; json.loads(pathlib.Path.home().joinpath(".config/omarchy/extensions/omarchy-menu.jsonc").read_text().split("*/")[-1] if False else __import__("re").sub(r"//.*","", pathlib.Path.home().joinpath(".config/omarchy/extensions/omarchy-menu.jsonc").read_text()))' 2>/dev/null \
-  && ok "menu jsonc parses" || {
-  python3 - <<'PY'
-import json,re,pathlib
-p=pathlib.Path.home()/".config/omarchy/extensions/omarchy-menu.jsonc"
-raw=re.sub(r"^\s*//.*$","",p.read_text(),flags=re.M)
-raw=re.sub(r",(\s*[}\]])","\\1",raw)
-json.loads(raw)
-print("parsed")
+if parse_menu; then
+  ok "menu jsonc parses"
+  python3 - <<'PY' && ok "stop row keeps label and plugin action" || bad "stop row missing label/action"
+import json
+m=json.load(open("/tmp/ianm-menu.json"))
+row=m.get("trigger.capture.screenrecord.stop") or {}
+assert row.get("label")=="Stop Screenrecording", row
+assert "ianm.capture-overlay/record.sh --stop-recording" in row.get("action",""), row
+assert "gpu-screen-recorder" in row.get("when",""), row
 PY
-} && ok "menu jsonc parses" || bad "menu jsonc does not parse"
+  python3 - <<'PY' && ok "webcam row still calls plugin record.sh" || bad "webcam row action is wrong"
+import json
+m=json.load(open("/tmp/ianm-menu.json"))
+row=m.get("trigger.capture.screenrecord.webcam") or {}
+assert "ianm.capture-overlay/record.sh" in row.get("action",""), row
+assert "--with-webcam" in row.get("action",""), row
+PY
+else
+  bad "menu jsonc does not parse"
+fi
 
 # 4. pgrep must not error (used by record.sh stop path)
 if pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/tmp/pgrep-err; then
@@ -94,7 +127,11 @@ else
   fi
 fi
 
-# 5. Open the Alt+Print menu the same way the binding does
+# 5. Resize IPC is idle when there is no pip
+resize_out=$(omarchy-shell capture-overlay resizeCam larger 2>&1) || true
+echo "$resize_out" | grep -qx idle && ok "resizeCam is idle without a pip" || bad "resizeCam without pip: $resize_out"
+
+# 6. Open the Alt+Print menu the same way the binding does
 omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
 omarchy menu close >/dev/null 2>&1 || true
 sleep 0.2
@@ -113,7 +150,7 @@ fi
 omarchy menu close >/dev/null 2>&1 || true
 sleep 0.15
 
-# 5b. Menu must still map when a picker is already up (the click-stealing case)
+# 7. Menu must still map when a picker is already up (the click-stealing case)
 payload=$(python3 -c 'import json,tempfile; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
 omarchy-shell capture-overlay pick "$payload" >/dev/null || true
 sleep 0.15
@@ -127,13 +164,12 @@ fi
 omarchy menu close >/dev/null 2>&1 || true
 omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
 sleep 0.2
-# dump for the log
 layers_json >>"$log"
 omarchy menu close >/dev/null 2>&1 || true
 sleep 0.2
 
-# 6. Overlay pick starts, then cancel (does not leave it up)
-payload=$(python3 -c 'import json,tempfile,os; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
+# 8. Overlay pick starts, then cancel (does not leave it up)
+payload=$(python3 -c 'import json,tempfile; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
 if omarchy-shell capture-overlay pick "$payload" >/dev/null; then
   st=$(omarchy-shell capture-overlay state)
   echo "$st" | grep -q '"picking":true' && ok "pick IPC starts picker" || bad "pick IPC ok but picking not true: $st"
@@ -155,8 +191,9 @@ if has_ns ianm-capture-overlay; then
 else
   ok "picker layer unmapped after cancel"
 fi
+echo "$st" | grep -q '"camPreview":false' && ok "cancel leaves camera preview off" || bad "camera still on after cancel: $st"
 
-# 7. Webcam action can start pick (short timeout, then cancel)
+# 9. Webcam action can start pick (short timeout, then cancel)
 timeout 1 bash -lc "$PLUGIN_DIR/record.sh --with-desktop-audio --with-microphone-audio --with-webcam" >/tmp/ianm-webcam-test.out 2>/tmp/ianm-webcam-test.err
 rc=$?
 st=$(omarchy-shell capture-overlay state 2>/dev/null || true)
@@ -171,5 +208,5 @@ omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
 omarchy menu close >/dev/null 2>&1 || true
 
 echo
-echo "=== $pass passed, $fail failed (log $log) ==="
+echo "=== $pass passed, $fail failed (live; log $log) ==="
 exit $((fail > 0 ? 1 : 0))

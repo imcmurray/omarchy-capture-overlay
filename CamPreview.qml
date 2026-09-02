@@ -20,17 +20,6 @@ Item {
   readonly property bool circle: root.webcamShape === "circle"
 
   signal failed()
-  signal sidecarStopped()
-
-  function startSidecar(path) {
-    recorder.outputLocation = "file://" + path
-    recorder.record()
-  }
-
-  function stopSidecar() {
-    if (recorder.recorderState === MediaRecorder.RecordingState)
-      recorder.stop()
-  }
 
   MediaDevices { id: mediaDevices }
 
@@ -50,20 +39,9 @@ Item {
     onErrorOccurred: function() { root.failed() }
   }
 
-  MediaRecorder {
-    id: recorder
-    quality: MediaRecorder.NormalQuality
-    onRecorderStateChanged: {
-      if (recorder.recorderState === MediaRecorder.StoppedState)
-        root.sidecarStopped()
-    }
-    onErrorOccurred: function() { root.failed() }
-  }
-
   CaptureSession {
     camera: camera
     videoOutput: camVideo
-    recorder: recorder
   }
 
   PanelWindow {

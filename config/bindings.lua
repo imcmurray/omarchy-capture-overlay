@@ -7,5 +7,5 @@ o.bind("ALT + PRINT", "Screenrecording", "omarchy-shell capture-overlay cancel >
 -- SUPER+ALT+[ / ] were already webcam resize; this points them at the wrapper.
 hl.unbind("SUPER + ALT + code:34")
 hl.unbind("SUPER + ALT + code:35")
-o.bind("SUPER + ALT + code:34", "Make webcam overlay smaller", "/home/ianm/.config/omarchy/plugins/ianm.capture-overlay/bin/omarchy-capture-webcam-resize smaller")
-o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "/home/ianm/.config/omarchy/plugins/ianm.capture-overlay/bin/omarchy-capture-webcam-resize larger")
+o.bind("SUPER + ALT + code:34", "Make webcam overlay smaller", "$HOME/.config/omarchy/plugins/ianm.capture-overlay/bin/omarchy-capture-webcam-resize smaller")
+o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "$HOME/.config/omarchy/plugins/ianm.capture-overlay/bin/omarchy-capture-webcam-resize larger")

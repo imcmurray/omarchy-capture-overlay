@@ -75,7 +75,6 @@ mapfile -t pick_lines <<<"$pick_out"
 geo=${pick_lines[0]:-}
 shape=${pick_lines[1]:-rectangle}
 [[ -n $geo ]] || exit 1
-printf '%s\n' "$shape" >"${XDG_RUNTIME_DIR:-/tmp}/omarchy-webcam-shape"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

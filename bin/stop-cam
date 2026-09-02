@@ -1,35 +1,6 @@
 #!/bin/bash
+# Best-effort cleanup. The live preview is torn down by unloading CamPreview.qml;
+# this only clears leftover units from older plugin versions.
 set -euo pipefail
-PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-# shellcheck disable=SC1091
-source "$PLUGIN_DIR/bin/cam-lib"
-
-systemctl --user stop ianm-cam.service 2>/dev/null || true
-systemctl --user reset-failed ianm-cam.service 2>/dev/null || true
-systemctl --user stop ianm-cam-sidecar.service 2>/dev/null || true
-systemctl --user reset-failed ianm-cam-sidecar.service 2>/dev/null || true
-
-kill_pid() {
-  local pid=$1
-  [[ $pid =~ ^[0-9]+$ ]] || return 0
-  kill -INT -- "-$pid" 2>/dev/null || kill -INT "$pid" 2>/dev/null || true
-  sleep 0.1
-  kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-}
-
-if [[ -f $FF_PIDFILE ]]; then
-  kill_pid "$(<"$FF_PIDFILE")"
-  rm -f "$FF_PIDFILE"
-fi
-if [[ -f $MPV_PIDFILE ]]; then
-  kill_pid "$(<"$MPV_PIDFILE")"
-  rm -f "$MPV_PIDFILE"
-fi
-hyprctl eval "hl.dispatch(hl.dsp.window.kill({ window = \"$WIN\" }))" >/dev/null 2>&1 || true
-# Hyprland-spawned mpv may not die with the window kill; match by argv token only.
-ps -C mpv -o pid=,args= 2>/dev/null | while read -r pid args; do
-  case "$args" in
-  *ianm-cam-preview*) kill -TERM "$pid" 2>/dev/null || true ;;
-  esac
-done || true
-rm -f "$FIFO"
+systemctl --user stop ianm-cam.service ianm-cam-sidecar.service 2>/dev/null || true
+systemctl --user reset-failed ianm-cam.service ianm-cam-sidecar.service 2>/dev/null || true

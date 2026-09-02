@@ -4,13 +4,6 @@
 
 RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
 RECIPE="$RUNTIME/omarchy-cam-mix.env"
-FIFO="$RUNTIME/omarchy-cam-preview.y4m"
-SIDECAR="$RUNTIME/omarchy-cam-sidecar.mp4"
-FF_PIDFILE="$RUNTIME/omarchy-cam-ffmpeg.pid"
-MPV_PIDFILE="$RUNTIME/omarchy-cam-mpv.pid"
-WIN='class:ianm.cam-preview'
-REAL_MPV=/usr/bin/mpv
-MARGIN=16
 
 cam_load() {
   [[ -f $RECIPE ]] || return 1
@@ -31,15 +24,6 @@ CAM_W=${CAM_W:-0}
 CAM_H=${CAM_H:-0}
 REL_X=${REL_X:-0}
 REL_Y=${REL_Y:-0}
-PARK_X=${PARK_X:-0}
-PARK_Y=${PARK_Y:-0}
-DEVICE=${DEVICE:-}
-LAVF=${LAVF:-input_format=yuyv422,video_size=640x360,framerate=30}
-SIDECAR=$SIDECAR
-FIFO=$FIFO
-FF_PIDFILE=$FF_PIDFILE
-MPV_PIDFILE=$MPV_PIDFILE
-OFFSET_SEC=${OFFSET_SEC:-0.12}
 FADE_IN=${FADE_IN:-0}
 FADE_OUT=${FADE_OUT:-0}
 FADE_SEC=${FADE_SEC:-2.5}
@@ -67,31 +51,4 @@ cam_fill_from_region() {
   fi
   REL_X=$((CAM_X - REGION_X))
   REL_Y=$((CAM_Y - REGION_Y))
-}
-
-cam_park_xy() {
-  local mon_x=0 mon_y=0 mon_w=3440 mon_h=1440
-  read -r mon_x mon_y mon_w mon_h < <(hyprctl monitors -j 2>/dev/null | jq -r '
-    first(.[] | select(.focused == true) // .[0])
-    | "\(.x) \(.y) \((.width / .scale) | floor) \((.height / .scale) | floor)"
-  ' 2>/dev/null || echo "0 0 3440 1440")
-  if ((REGION_X + REGION_W + MARGIN + CAM_W <= mon_x + mon_w)); then
-    PARK_X=$((REGION_X + REGION_W + MARGIN))
-    PARK_Y=$CAM_Y
-  elif ((REGION_X - MARGIN - CAM_W >= mon_x)); then
-    PARK_X=$((REGION_X - MARGIN - CAM_W))
-    PARK_Y=$CAM_Y
-  else
-    PARK_X=$CAM_X
-    PARK_Y=$((REGION_Y + REGION_H + MARGIN))
-  fi
-}
-
-cam_place() {
-  local x=$1 y=$2 w=$3 h=$4
-  ((w < 48)) && w=48
-  ((h < 48)) && h=48
-  hyprctl eval "hl.dispatch(hl.dsp.window.float({ window = \"$WIN\", action = \"on\" }))"
-  hyprctl eval "hl.dispatch(hl.dsp.window.resize({ window = \"$WIN\", x = $w, y = $h, relative = false }))"
-  hyprctl eval "hl.dispatch(hl.dsp.window.move({ window = \"$WIN\", x = $x, y = $y, relative = false }))"
 }

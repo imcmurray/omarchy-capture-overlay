@@ -56,9 +56,7 @@ Item {
   property bool camAnimating: false
   property bool camDidDrag: false
   property bool camPreviewActive: false
-  property bool camSidecarStopping: false
   property bool wasRecording: false
-  readonly property string camSidecar: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-cam-sidecar.mp4"
 
   readonly property var camScreen: {
     var screens = Quickshell.screens
@@ -108,10 +106,6 @@ Item {
       item.showCountdown = Qt.binding(function() { return root.pickPhase === "countdown" })
       item.countdownValue = Qt.binding(function() { return root.countdownValue })
       item.failed.connect(function() { root.camPreviewActive = false })
-      item.sidecarStopped.connect(function() {
-        if (root.camSidecarStopping)
-          root.camPreviewActive = false
-      })
     }
   }
 
@@ -395,15 +389,11 @@ Item {
       root.fadeIn ? "1" : "0",
       root.fadeOut ? "1" : "0"
     ])
-    root.camSidecarStopping = false
     root.camPreviewActive = true
     return "place"
   }
 
   function stopWebcamPreview() {
-    root.camSidecarStopping = true
-    if (camEngine.item)
-      camEngine.item.stopSidecar()
     root.camPreviewActive = false
     Quickshell.execDetached([root.pluginDir + "/bin/stop-cam"])
   }
@@ -430,10 +420,6 @@ Item {
     var shape = (ok && root.askWebcamShape) ? root.webcamShape : ""
     if (!ok)
       root.stopWebcamPreview()
-    else if (root.camPreviewActive) {
-      // Live pip is captured in the grab. Mixing a sidecar on top duplicated it.
-      root.camSidecarStopping = false
-    }
     if (root.selectionFile && root.doneFile) {
       Quickshell.execDetached([
         root.pluginDir + "/bin/finish-pick",
@@ -995,8 +981,8 @@ Item {
         return true
       }
       WlrLayershell.keyboardFocus: picker.grabKeys ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-      // Clicks pass through so the camera can be dragged. The webcam window
-      // is no_focus so Enter/Esc stay on this exclusive keyboard grab.
+      // The camera layer is visual-only (empty mask). This overlay keeps the
+      // exclusive keyboard grab so Enter/Esc still work while the pip is dragged.
       mask: !root.picking
         ? passClicks
         : ((root.pickPhase === "place" || root.pickPhase === "countdown")

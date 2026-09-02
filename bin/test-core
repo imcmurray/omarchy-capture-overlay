@@ -1,0 +1,222 @@
+#!/bin/bash
+# Unit tests that do not need the compositor or a live picker.
+set -u
+PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+pass=0
+fail=0
+
+ok() { echo "PASS  $*"; pass=$((pass + 1)); }
+bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
+
+echo "=== capture overlay core tests $(date) ==="
+
+# --- leftover files and strings ---
+for dead in cam-run cam-sidecar place-webcam stop-webcam pick-v4l2-mode; do
+  if [[ -e $PLUGIN_DIR/bin/$dead ]]; then
+    bad "leftover script still present: bin/$dead"
+  else
+    ok "removed leftover bin/$dead"
+  fi
+done
+
+if grep -R -n --include='*.qml' --include='*.js' --include='*.sh' --exclude='test-*' -E 'MediaRecorder|startSidecar|stopSidecar|camSidecar|REAL_MPV|cam_place|cam_park_xy|has_sidecar' "$PLUGIN_DIR" >/tmp/ianm-core-grep.txt 2>/dev/null; then
+  bad "leftover sidecar/mpv symbols:"
+  cat /tmp/ianm-core-grep.txt
+else
+  ok "no sidecar/mpv symbols in plugin sources"
+fi
+
+if grep -R -n --include='*.qml' --include='*.sh' 'WebcamOverlay' "$PLUGIN_DIR" >/dev/null; then
+  bad "plugin still mentions stock WebcamOverlay"
+else
+  ok "plugin does not match stock WebcamOverlay"
+fi
+
+if grep -n 'PATH=.*mpv\|bin/mpv' "$PLUGIN_DIR/record.sh" >/dev/null; then
+  bad "record.sh still PATH-wraps mpv"
+else
+  ok "record.sh does not PATH-wrap mpv"
+fi
+
+# --- cam-lib geometry ---
+work=$(mktemp -d)
+export XDG_RUNTIME_DIR=$work
+# shellcheck disable=SC1091
+source "$PLUGIN_DIR/bin/cam-lib"
+
+SHAPE=rectangle
+cam_fill_from_region 10 20 1920 1080
+if [[ $CAM_X == 10 && $CAM_Y == 20 && $CAM_W == 1920 && $CAM_H == 1080 && $REL_X == 0 && $REL_Y == 0 ]]; then
+  ok "rectangle pip fills the grab"
+else
+  bad "rectangle pip geometry: $CAM_X,$CAM_Y ${CAM_W}x${CAM_H} rel=$REL_X,$REL_Y"
+fi
+
+SHAPE=circle
+cam_fill_from_region 100 200 1920 1080
+if [[ $CAM_W == 1080 && $CAM_H == 1080 && $CAM_X == $((100 + (1920 - 1080) / 2)) && $CAM_Y == 200 ]]; then
+  ok "circle pip is a centered square in the grab"
+else
+  bad "circle pip geometry: $CAM_X,$CAM_Y ${CAM_W}x${CAM_H}"
+fi
+
+FADE_IN=1 FADE_OUT=0 FADE_SEC=2.5
+cam_save
+unset SHAPE REGION_X CAM_W FADE_IN FADE_OUT FADE_SEC
+cam_load || { bad "cam_load failed after cam_save"; }
+if [[ $SHAPE == circle && $FADE_IN == 1 && $FADE_OUT == 0 && $CAM_W == 1080 ]]; then
+  ok "cam_save/cam_load round-trip"
+else
+  bad "recipe round-trip SHAPE=$SHAPE FADE_IN=$FADE_IN CAM_W=$CAM_W"
+fi
+
+# --- start-cam / cam-update ---
+"$PLUGIN_DIR/bin/start-cam" rectangle "640x360+40+80" 1 1
+# shellcheck disable=SC1090
+source "$RECIPE"
+if [[ $REGION_X == 40 && $REGION_Y == 80 && $REGION_W == 640 && $REGION_H == 360 && $FADE_IN == 1 && $FADE_OUT == 1 && $CAM_X == 40 ]]; then
+  ok "start-cam writes grab, pip, and fade flags"
+else
+  bad "start-cam recipe REGION=$REGION_X,$REGION_Y ${REGION_W}x${REGION_H} CAM=$CAM_X FADE=$FADE_IN/$FADE_OUT"
+fi
+
+"$PLUGIN_DIR/bin/cam-update" 50 90 200 120
+# shellcheck disable=SC1090
+source "$RECIPE"
+if [[ $CAM_X == 50 && $CAM_Y == 90 && $CAM_W == 200 && $CAM_H == 120 && $REL_X == 10 && $REL_Y == 10 ]]; then
+  ok "cam-update persists dragged pip geometry"
+else
+  bad "cam-update CAM=$CAM_X,$CAM_Y ${CAM_W}x${CAM_H} rel=$REL_X,$REL_Y"
+fi
+
+# --- finish-pick ---
+sel=$work/sel
+donef=$work/done
+"$PLUGIN_DIR/bin/finish-pick" "40,80 640x360" "$sel" ok "$donef" rectangle 1 0
+# shellcheck disable=SC1090
+source "$RECIPE"
+if [[ $FADE_IN == 1 && $FADE_OUT == 0 && $(<"$donef") == ok && $(sed -n '1p' "$sel") == "40,80 640x360" ]]; then
+  ok "finish-pick ok writes geo, shape, and fade flags"
+else
+  bad "finish-pick ok FADE=$FADE_IN/$FADE_OUT done=$(<"$donef") sel=$(cat "$sel")"
+fi
+
+"$PLUGIN_DIR/bin/finish-pick" "" "$sel" cancel "$donef" "" 0 0
+if [[ ! -f $RECIPE && $(<"$donef") == cancel ]]; then
+  ok "finish-pick cancel drops the recipe"
+else
+  bad "finish-pick cancel left RECIPE=$([[ -f $RECIPE ]] && echo yes || echo no) done=$(<"$donef")"
+fi
+
+# --- compose-cam fades ---
+clip=$work/clip.mp4
+if ffmpeg -hide_banner -loglevel error -y \
+  -f lavfi -i color=c=white:s=320x180:d=5:r=30 \
+  -f lavfi -i sine=frequency=1000:duration=5 \
+  -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac -shortest "$clip"
+then
+  FADE_IN=1 FADE_OUT=1 FADE_SEC=1.0 SHAPE=rectangle
+  REGION_X=0 REGION_Y=0 REGION_W=320 REGION_H=180
+  CAM_X=0 CAM_Y=0 CAM_W=320 CAM_H=180 REL_X=0 REL_Y=0
+  cam_save
+  IANM_CAPTURE_TEST=1 "$PLUGIN_DIR/bin/compose-cam" "$clip"
+  luma=$(python3 - "$clip" <<'PY'
+import subprocess, sys
+path = sys.argv[1]
+
+def mean(t):
+    p = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", str(t), "-i", path,
+         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
+        capture_output=True,
+    )
+    d = p.stdout
+    return (sum(d) / len(d)) if d else -1
+
+print(f"{mean(0):.1f} {mean(2.5):.1f} {mean(4.95):.1f}")
+PY
+)
+  read -r l0 lmid lend <<<"$luma"
+  if awk -v a="$l0" -v b="$lmid" -v c="$lend" 'BEGIN { exit !((a+0) < 40 && (b+0) > 180 && (c+0) < 40) }'; then
+    ok "compose-cam fades white clip to black at both ends (luma $luma)"
+  else
+    bad "compose-cam fade luma expected low/high/low, got $luma"
+  fi
+  if [[ -f $RECIPE ]]; then
+    bad "compose-cam left the recipe file behind"
+  else
+    ok "compose-cam removes the recipe after render"
+  fi
+else
+  bad "could not generate a test clip with ffmpeg"
+fi
+
+none=$work/plain.mp4
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=white:s=160x90:d=1:r=30 \
+  -c:v libx264 -pix_fmt yuv420p -preset ultrafast -an "$none" >/dev/null
+before=$(stat -c %s "$none")
+IANM_CAPTURE_TEST=1 "$PLUGIN_DIR/bin/compose-cam" "$none"
+after=$(stat -c %s "$none")
+if [[ $before == "$after" ]]; then
+  ok "compose-cam is a no-op without a recipe"
+else
+  bad "compose-cam rewrote a file with no recipe ($before -> $after)"
+fi
+
+# --- PickerModel.js ---
+if PICKER="$PLUGIN_DIR/PickerModel.js" node <<'JS'
+const fs = require("fs");
+const src = fs.readFileSync(process.env.PICKER, "utf8").replace(/^\.pragma library\s*/, "");
+eval(src);
+function assert(cond, msg) {
+  if (!cond) {
+    console.error(msg);
+    process.exit(1);
+  }
+}
+const r = clampRect({ x: -10, y: -10, w: 50, h: 50 }, 0, 0, 100, 100);
+assert(r.x === 0 && r.y === 0 && r.w >= 32 && r.h >= 32, "clampRect should stay on screen");
+const guides = [
+  { x: 0, y: 0, w: 1920, h: 1080, label: "1080p" },
+  { x: 0, y: 0, w: 1280, h: 720, label: "720p" },
+];
+const snapped = snapToGhosts({ x: 0, y: 0, w: 1910, h: 1070 }, guides, 32);
+assert(snapped.snapped === "1080p" && snapped.w === 1920 && snapped.h === 1080, "snapToGhosts 1080p");
+assert(matchingLabel({ w: 1280, h: 720 }) === "720p", "matchingLabel 720p");
+assert(hitHandle(0, 0, { x: 0, y: 0, w: 100, h: 80 }) === "nw", "hitHandle nw");
+assert(hitHandle(50, 0, { x: 0, y: 0, w: 100, h: 80 }) === "n", "hitHandle n");
+const resized = resize({ x: 10, y: 10, w: 100, h: 80 }, "se", 200, 200);
+assert(resized.w === 190 && resized.h === 190, "resize se");
+const moved = move({ x: 10, y: 20, w: 30, h: 40 }, 5, -2);
+assert(moved.x === 15 && moved.y === 18, "move");
+assert(inside(15, 15, { x: 10, y: 10, w: 20, h: 20 }), "inside");
+assert(!inside(5, 5, { x: 10, y: 10, w: 20, h: 20 }), "outside");
+assert(cursorForHandle("nw") === "nwse" && cursorForHandle("n") === "ns", "cursorForHandle");
+const vis = visibleGhosts(guides, { x: 0, y: 0, w: 1920, h: 1080 });
+assert(vis.length === 1 && vis[0].label === "720p", "visibleGhosts hides current");
+process.exit(0);
+JS
+then
+  ok "PickerModel clamp/snap/hit/resize"
+else
+  bad "PickerModel.js unit tests"
+fi
+
+# --- wrappers ---
+if "$PLUGIN_DIR/bin/omarchy-capture-webcam-resize" 2>/dev/null; then
+  bad "resize wrapper accepted a missing action"
+else
+  ok "resize wrapper rejects a missing action"
+fi
+
+if "$PLUGIN_DIR/record.sh" --stop-recording >/tmp/ianm-stop-idle.out 2>/tmp/ianm-stop-idle.err; then
+  bad "record.sh --stop-recording exited 0 while idle (menu || would not open)"
+else
+  ok "record.sh --stop-recording exits nonzero when nothing is recording"
+fi
+
+rm -rf "$work"
+
+echo
+echo "=== $pass passed, $fail failed (core) ==="
+exit $((fail > 0 ? 1 : 0))

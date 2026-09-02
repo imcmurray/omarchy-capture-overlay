@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mix the camera sidecar onto the grab. Ultrafast encode; audio is copied.
+# Apply fade in/out to the saved recording. The live pip is already in the grab.
 set -euo pipefail
 PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
@@ -9,71 +9,18 @@ screen=${1:-}
 [[ -n $screen && -f $screen ]] || exit 0
 cam_load || exit 0
 
-systemctl --user stop ianm-cam-sidecar.service 2>/dev/null || true
-
-sidecar=${SIDECAR:-}
-# Do not overlay the sidecar — the live pip is already in the grab. A second
-# mix produced two circles when the pip was moved.
-has_sidecar=false
-
-rel_x=${REL_X:-0}
-rel_y=${REL_Y:-0}
-w=${CAM_W:-320}
-h=${CAM_H:-180}
-shape=${SHAPE:-rectangle}
-rw=${REGION_W:-0}
-rh=${REGION_H:-0}
-offset=${OFFSET_SEC:-0.12}
-((w < 48)) && w=48
-((h < 48)) && h=48
-((rel_x < 0)) && rel_x=0
-((rel_y < 0)) && rel_y=0
-if ((rw > 0 && rel_x + w > rw)); then
-  rel_x=$((rw - w))
-  ((rel_x < 0)) && rel_x=0
-fi
-if ((rh > 0 && rel_y + h > rh)); then
-  rel_y=$((rh - h))
-  ((rel_y < 0)) && rel_y=0
-fi
-
-out="${screen%.mp4}-mixed.mp4"
-work=$screen
-if $has_sidecar; then
-  if [[ $shape == circle ]]; then
-    side=$((w < h ? w : h))
-    w=$side
-    h=$side
-    cam_f="[1:v]crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2,scale=${w}:${h}:flags=fast_bilinear,format=rgba,geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='if(lt((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2)\\,(min(W\\,H)/2)*(min(W\\,H)/2))\\,255\\,0)'[cam]"
-  else
-    cam_f="[1:v]scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2[cam]"
-  fi
-  map_audio=()
-  if ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$screen" 2>/dev/null | grep -q audio; then
-    map_audio=(-map 0:a -c:a copy)
-  fi
-  cam_f="${cam_f};[0:v][cam]overlay=${rel_x}:${rel_y}:shortest=1[v]"
-  if ffmpeg -hide_banner -loglevel error -y \
-    -i "$screen" -itsoffset "-$offset" -i "$sidecar" \
-    -filter_complex "$cam_f" \
-    -map '[v]' "${map_audio[@]}" \
-    -c:v libx264 -preset ultrafast -tune fastdecode -crf 23 -threads 0 \
-    "$out"
-  then
-    mv -f "$out" "$screen"
-    work=$screen
-  else
-    rm -f "$out"
-    omarchy-notification-send -u critical -t 5000 "Webcam mix failed" "Kept the screen recording without the camera overlay."
-  fi
-fi
+notify() {
+  [[ ${IANM_CAPTURE_TEST:-} == 1 ]] && return 0
+  omarchy-notification-send "$@"
+}
 
 fade_in=${FADE_IN:-0}
 fade_out=${FADE_OUT:-0}
 fade_sec=${FADE_SEC:-2.5}
+work=$screen
 log="${XDG_RUNTIME_DIR:-/tmp}/omarchy-cam-compose.log"
 {
-  echo "$(date '+%F %T') file=$work sidecar=$has_sidecar fade_in=$fade_in fade_out=$fade_out fade_sec=$fade_sec"
+  echo "$(date '+%F %T') file=$work fade_in=$fade_in fade_out=$fade_out fade_sec=$fade_sec"
 } >>"$log"
 if [[ $fade_in == 1 || $fade_out == 1 ]]; then
   dur=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$work" 2>/dev/null || echo 0)
@@ -105,13 +52,13 @@ if [[ $fade_in == 1 || $fade_out == 1 ]]; then
       -c:v libx264 -preset ultrafast -tune fastdecode -crf 23 -threads 0 "$faded"
     then
       mv -f "$faded" "$work"
-      omarchy-notification-send -t 4000 "Fades applied" "Fade in/out written into the saved recording."
+      notify -t 4000 "Fades applied" "Fade in/out written into the saved recording."
     else
       rm -f "$faded"
       echo "$(date '+%F %T') fade ffmpeg failed" >>"$log"
-      omarchy-notification-send -u critical -t 4000 "Fade failed" "Kept the recording without fade in/out."
+      notify -u critical -t 4000 "Fade failed" "Kept the recording without fade in/out."
     fi
   fi
 fi
 
-rm -f "$sidecar" "$RECIPE"
+rm -f "$RECIPE"

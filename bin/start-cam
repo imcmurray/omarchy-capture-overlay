@@ -1,6 +1,5 @@
 #!/bin/bash
-# Record placement for the post-mix. Live preview is the QML camera on the
-# overlay — not an mpv window.
+# Persist grab/pip geometry and fade flags. Live preview is the QML camera.
 set -euo pipefail
 
 PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -15,14 +14,6 @@ FADE_SEC=${FADE_SEC:-2.5}
 
 "$PLUGIN_DIR/bin/stop-cam" || true
 
-LIST="${OMARCHY_PATH:-/usr/share/omarchy}/bin/omarchy-capture-webcam-list"
-DEVICE=$("$LIST" 2>/dev/null | sed -n '1s/[[:space:]].*//p' || true)
-
-LAVF=input_format=yuyv422,video_size=640x360,framerate=30
-if [[ -n $DEVICE && -x $PLUGIN_DIR/bin/pick-v4l2-mode ]]; then
-  LAVF=$("$PLUGIN_DIR/bin/pick-v4l2-mode" "$DEVICE" || echo "$LAVF")
-fi
-
 rx=0 ry=0 rw=640 rh=360
 if [[ $REGION =~ ^([0-9]+)x([0-9]+)\+(-?[0-9]+)\+(-?[0-9]+)$ ]]; then
   rw=${BASH_REMATCH[1]}
@@ -31,8 +22,4 @@ if [[ $REGION =~ ^([0-9]+)x([0-9]+)\+(-?[0-9]+)\+(-?[0-9]+)$ ]]; then
   ry=${BASH_REMATCH[4]}
 fi
 cam_fill_from_region "$rx" "$ry" "$rw" "$rh"
-cam_park_xy
-OFFSET_SEC=0.12
 cam_save
-printf '%s\n' "$SHAPE" >"$RUNTIME/omarchy-webcam-shape"
-printf '%s\n' "$REGION" >"$RUNTIME/omarchy-webcam-grab"

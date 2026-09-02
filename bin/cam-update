@@ -1,5 +1,5 @@
 #!/bin/bash
-# Update saved pip geometry for the post-mix.
+# Persist pip geometry after a drag or Super+Alt resize.
 set -euo pipefail
 PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091

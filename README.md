@@ -2,16 +2,16 @@
 
 Interactive screen-record picker for [Omarchy](https://omarchy.org/) (Hyprland + Quickshell).
 
-Replaces the stock slurp region picker with a live grab frame, 1080p snap guides, and a webcam pip that can be a rectangle or a circle. The live camera stays out of gpu-screen-recorder (`no_screen_share`); a sidecar is mixed in after you stop.
+Replaces the stock slurp region picker with a live grab frame, 1080p snap guides, and a webcam pip that can be a rectangle or a circle. The live camera sits in the grab and is captured by gpu-screen-recorder. Optional fade in/out is applied to the saved file after you stop.
 
 ## Features
 
 - Drag a region with 1080p / 720p / 900p snap guides and draggable edges
-- Webcam shape after confirm: rectangle or circle
+- Webcam shape after confirm: rectangle or circle, with fade in/out checkboxes
 - Live pip in the grab; drag it to a corner; Super+Alt `[` / `]` eases between sizes
 - 3–2–1 replaces the pip, then the camera comes back
 - Desktop audio + microphone on the webcam menu row
-- Mix uses the same circle (or rectangle) as the live preview
+- Fade in/out is ffmpeg post on the final file only — not on the live preview
 
 ## Install
 
@@ -37,10 +37,10 @@ omarchy restart shell
 
 1. **Alt+Print** → **With desktop + microphone audio + webcam**
 2. Drag a region (click a size guide or pull the edges)
-3. Pick **Rectangle** or **Circle**
+3. Pick **Rectangle** or **Circle**, and optionally **Fade in** / **Fade out**
 4. Drag the pip to a corner; **Super+Alt+[`** / **`]** to resize
 5. **Enter** for 3–2–1, then record
-6. **Alt+Print** again to stop
+6. **Alt+Print** again to stop (waits for the final render, then toasts)
 
 Without webcam, the same picker still wraps the other screenrecord menu rows.
 
@@ -48,12 +48,13 @@ Without webcam, the same picker still wraps the other screenrecord menu rows.
 
 | Path | Role |
 | --- | --- |
-| `Service.qml` | Overlay service: picker, IPC, pip drag, mix hooks |
+| `Service.qml` | Overlay service: picker, IPC, pip drag |
 | `CamPreview.qml` | Qt Multimedia live camera + countdown surface |
 | `PickerModel.js` | Snap guides and hit testing |
 | `record.sh` / `pick.sh` | Menu entry; region IPC |
-| `bin/compose-cam` | Mix sidecar onto the grab |
-| `bin/test-overlay` | Idle / menu / picker checks |
+| `bin/compose-cam` | Fade in/out on the saved file |
+| `bin/test-core` | Script and picker unit tests |
+| `bin/test-overlay` | Unit tests plus idle / menu / picker checks |
 
 ## License
 
