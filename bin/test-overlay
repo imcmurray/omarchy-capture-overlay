@@ -1,0 +1,175 @@
+#!/bin/bash
+# Diagnostic checks for the capture-overlay + Alt+Print menu path.
+set -u
+PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+pass=0
+fail=0
+log=/tmp/ianm-overlay-test.log
+: >"$log"
+
+ok() { echo "PASS  $*"; pass=$((pass + 1)); }
+bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
+info() { echo "INFO  $*"; }
+
+layers_json() { hyprctl layers -j 2>/dev/null; }
+
+has_ns() {
+  local ns=$1
+  layers_json | python3 -c "
+import json,sys
+ns=sys.argv[1]
+d=json.load(sys.stdin)
+for data in d.values():
+  for layers in data.get('levels',{}).values():
+    for l in layers:
+      if l.get('namespace')==ns:
+        sys.exit(0)
+sys.exit(1)
+" "$ns"
+}
+
+layer_size() {
+  local ns=$1
+  layers_json | python3 -c "
+import json,sys
+ns=sys.argv[1]
+d=json.load(sys.stdin)
+for data in d.values():
+  for layers in data.get('levels',{}).values():
+    for l in layers:
+      if l.get('namespace')==ns:
+        print(f\"{l.get('w')}x{l.get('h')}@{l.get('x')},{l.get('y')}\")
+        sys.exit(0)
+print('ABSENT')
+" "$ns"
+}
+
+echo "=== capture overlay tests $(date) ==="
+
+# 1. Overlay IPC
+state=$(omarchy-shell capture-overlay state 2>&1) || true
+echo "$state" | grep -q '"picking":false' && ok "overlay IPC idle picking=false" || bad "overlay IPC not idle: $state"
+echo "$state" | grep -q '"camPreview":false' && ok "camera preview off when idle" || bad "camera preview still on: $state"
+
+# 2. Idle: no capture layers
+if has_ns ianm-capture-overlay; then
+  bad "ianm-capture-overlay is mapped while idle ($(layer_size ianm-capture-overlay))"
+else
+  ok "no capture overlay layer while idle"
+fi
+if has_ns ianm-cam-preview; then
+  bad "ianm-cam-preview is mapped while idle ($(layer_size ianm-cam-preview))"
+else
+  ok "no camera preview layer while idle"
+fi
+
+# 3. Webcam hardware + scripts
+if omarchy-hw-webcam; then
+  ok "omarchy-hw-webcam sees a camera"
+else
+  bad "omarchy-hw-webcam failed (webcam menu row would be hidden)"
+fi
+[[ -x $PLUGIN_DIR/record.sh ]] && ok "record.sh executable" || bad "record.sh missing"
+[[ -x $PLUGIN_DIR/pick.sh ]] && ok "pick.sh executable" || bad "pick.sh missing"
+python3 -c 'import json,pathlib; json.loads(pathlib.Path.home().joinpath(".config/omarchy/extensions/omarchy-menu.jsonc").read_text().split("*/")[-1] if False else __import__("re").sub(r"//.*","", pathlib.Path.home().joinpath(".config/omarchy/extensions/omarchy-menu.jsonc").read_text()))' 2>/dev/null \
+  && ok "menu jsonc parses" || {
+  python3 - <<'PY'
+import json,re,pathlib
+p=pathlib.Path.home()/".config/omarchy/extensions/omarchy-menu.jsonc"
+raw=re.sub(r"^\s*//.*$","",p.read_text(),flags=re.M)
+raw=re.sub(r",(\s*[}\]])","\\1",raw)
+json.loads(raw)
+print("parsed")
+PY
+} && ok "menu jsonc parses" || bad "menu jsonc does not parse"
+
+# 4. pgrep must not error (used by record.sh stop path)
+if pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/tmp/pgrep-err; then
+  info "gpu-screen-recorder is running"
+else
+  if [[ -s /tmp/pgrep-err ]]; then
+    bad "pgrep errors: $(cat /tmp/pgrep-err)"
+  else
+    ok "pgrep gpu-screen-recorder is quiet and idle"
+  fi
+fi
+
+# 5. Open the Alt+Print menu the same way the binding does
+omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
+omarchy menu close >/dev/null 2>&1 || true
+sleep 0.2
+omarchy menu summon trigger.capture.screenrecord >/dev/null 2>&1 || true
+sleep 0.35
+if has_ns omarchy-menu; then
+  ok "screenrecord menu layer mapped ($(layer_size omarchy-menu))"
+else
+  bad "screenrecord menu did not map (Alt+Print would show nothing)"
+fi
+if has_ns ianm-capture-overlay; then
+  bad "capture overlay is mapped while menu is open ($(layer_size ianm-capture-overlay))"
+else
+  ok "capture overlay not mapped while menu is open"
+fi
+omarchy menu close >/dev/null 2>&1 || true
+sleep 0.15
+
+# 5b. Menu must still map when a picker is already up (the click-stealing case)
+payload=$(python3 -c 'import json,tempfile; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
+omarchy-shell capture-overlay pick "$payload" >/dev/null || true
+sleep 0.15
+omarchy menu summon trigger.capture.screenrecord >/dev/null 2>&1 || true
+sleep 0.35
+if has_ns omarchy-menu; then
+  ok "menu still maps when picker is already up ($(layer_size omarchy-menu))"
+else
+  bad "menu did not map while picker was up — Alt+Print rows would be unclickable"
+fi
+omarchy menu close >/dev/null 2>&1 || true
+omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
+sleep 0.2
+# dump for the log
+layers_json >>"$log"
+omarchy menu close >/dev/null 2>&1 || true
+sleep 0.2
+
+# 6. Overlay pick starts, then cancel (does not leave it up)
+payload=$(python3 -c 'import json,tempfile,os; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
+if omarchy-shell capture-overlay pick "$payload" >/dev/null; then
+  st=$(omarchy-shell capture-overlay state)
+  echo "$st" | grep -q '"picking":true' && ok "pick IPC starts picker" || bad "pick IPC ok but picking not true: $st"
+  sleep 0.15
+  if has_ns ianm-capture-overlay; then
+    ok "picker layer maps during pick ($(layer_size ianm-capture-overlay))"
+  else
+    bad "picker IPC succeeded but no ianm-capture-overlay layer"
+  fi
+else
+  bad "pick IPC failed"
+fi
+omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
+sleep 0.2
+st=$(omarchy-shell capture-overlay state)
+echo "$st" | grep -q '"picking":false' && ok "cancel returns to idle" || bad "still picking after cancel: $st"
+if has_ns ianm-capture-overlay; then
+  bad "picker layer still mapped after cancel ($(layer_size ianm-capture-overlay))"
+else
+  ok "picker layer unmapped after cancel"
+fi
+
+# 7. Webcam action can start pick (short timeout, then cancel)
+timeout 1 bash -lc "$PLUGIN_DIR/record.sh --with-desktop-audio --with-microphone-audio --with-webcam" >/tmp/ianm-webcam-test.out 2>/tmp/ianm-webcam-test.err
+rc=$?
+st=$(omarchy-shell capture-overlay state 2>/dev/null || true)
+if echo "$st" | grep -q '"picking":true'; then
+  ok "record.sh --with-webcam started the picker"
+elif grep -q 'picker is not running' /tmp/ianm-webcam-test.err; then
+  bad "record.sh could not reach overlay picker"
+else
+  info "record.sh exit $rc stderr=$(tr '\n' ' ' </tmp/ianm-webcam-test.err)"
+fi
+omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true
+omarchy menu close >/dev/null 2>&1 || true
+
+echo
+echo "=== $pass passed, $fail failed (log $log) ==="
+exit $((fail > 0 ? 1 : 0))

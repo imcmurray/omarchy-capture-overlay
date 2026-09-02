@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "ianm.capture-overlay",
+  "name": "Capture overlay",
+  "version": "1.3.14",
+  "author": "Ian McMurray",
+  "license": "MIT",
+  "description": "Interactive screen-record picker with 1080p snap guides, draggable edges, and a live capture frame while recording.",
+  "kinds": ["service"],
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "keywords": [
+    "capture",
+    "screenrecord",
+    "overlay",
+    "region",
+    "border"
+  ]
+}

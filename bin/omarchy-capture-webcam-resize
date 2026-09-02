@@ -1,0 +1,12 @@
+#!/bin/bash
+# Resize the overlay camera via the picker IPC (QML preview, not an mpv window).
+set -euo pipefail
+action=${1:-}
+case $action in
+smaller | larger | fill | reset | small | medium | large) ;;
+*)
+  echo "Usage: omarchy-capture-webcam-resize <smaller|larger|fill|reset|small|medium|large>" >&2
+  exit 1
+  ;;
+esac
+exec omarchy-shell capture-overlay resizeCam "$action"

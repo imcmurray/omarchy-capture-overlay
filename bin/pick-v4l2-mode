@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Pick a v4l2 mode that stays at a true 30fps. Prefer uncompressed 640x360
+so we never accidentally open YUYV 1280x720 (10fps on a C920)."""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+
+PREFS = [
+    ("YUYV", "640x360", 30, "yuyv422"),
+    ("YUYV", "640x480", 30, "yuyv422"),
+    ("MJPG", "640x360", 30, "mjpeg"),
+    ("MJPG", "1280x720", 30, "mjpeg"),
+]
+
+
+def modes_for(device: str) -> set[tuple[str, str, int]]:
+    try:
+        text = subprocess.check_output(
+            ["v4l2-ctl", "--list-formats-ext", "-d", device],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+
+    fmt = ""
+    size = ""
+    found: set[tuple[str, str, int]] = set()
+    fmt_re = re.compile(r"^\s*\[\d+\]: '(\w+)'")
+    size_re = re.compile(r"Size: Discrete (\d+x\d+)")
+    fps_re = re.compile(r"\(([\d.]+) fps\)")
+    for line in text.splitlines():
+        m = fmt_re.search(line)
+        if m:
+            fmt = m.group(1)
+            size = ""
+            continue
+        m = size_re.search(line)
+        if m:
+            size = m.group(1)
+            continue
+        m = fps_re.search(line)
+        if m and fmt and size:
+            found.add((fmt, size, int(round(float(m.group(1))))))
+    return found
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        return 1
+    modes = modes_for(sys.argv[1])
+    for fourcc, size, fps, lavf in PREFS:
+        if (fourcc, size, fps) in modes:
+            print(f"input_format={lavf},video_size={size},framerate={fps}")
+            return 0
+    print("video_size=640x360,framerate=30")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

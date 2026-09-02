@@ -1,0 +1,77 @@
+#!/bin/bash
+# Mix the camera sidecar onto the grab. Ultrafast encode; audio is copied.
+set -euo pipefail
+PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC1091
+source "$PLUGIN_DIR/bin/cam-lib"
+
+screen=${1:-}
+[[ -n $screen && -f $screen ]] || exit 0
+cam_load || exit 0
+
+systemctl --user stop ianm-cam-sidecar.service 2>/dev/null || true
+
+sidecar=${SIDECAR:-}
+prev=0
+for _ in $(seq 1 40); do
+  sz=$(stat -c%s "$sidecar" 2>/dev/null || echo 0)
+  if ((sz > 4096 && sz == prev)); then
+    break
+  fi
+  prev=$sz
+  sleep 0.1
+done
+[[ -n $sidecar && -s $sidecar ]] || exit 0
+
+rel_x=${REL_X:-0}
+rel_y=${REL_Y:-0}
+w=${CAM_W:-320}
+h=${CAM_H:-180}
+shape=${SHAPE:-rectangle}
+rw=${REGION_W:-0}
+rh=${REGION_H:-0}
+offset=${OFFSET_SEC:-0.12}
+((w < 48)) && w=48
+((h < 48)) && h=48
+((rel_x < 0)) && rel_x=0
+((rel_y < 0)) && rel_y=0
+if ((rw > 0 && rel_x + w > rw)); then
+  rel_x=$((rw - w))
+  ((rel_x < 0)) && rel_x=0
+fi
+if ((rh > 0 && rel_y + h > rh)); then
+  rel_y=$((rh - h))
+  ((rel_y < 0)) && rel_y=0
+fi
+
+if [[ $shape == circle ]]; then
+  side=$((w < h ? w : h))
+  w=$side
+  h=$side
+  cam_f="[1:v]crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2,scale=${w}:${h}:flags=fast_bilinear,format=rgba,geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='if(lt((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2)\\,(min(W\\,H)/2)*(min(W\\,H)/2))\\,255\\,0)'[cam]"
+else
+  cam_f="[1:v]scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=fast_bilinear,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2[cam]"
+fi
+
+out="${screen%.mp4}-mixed.mp4"
+map_audio=()
+if ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$screen" 2>/dev/null | grep -q audio; then
+  map_audio=(-map 0:a -c:a copy)
+fi
+
+cam_f="${cam_f};[0:v][cam]overlay=${rel_x}:${rel_y}:shortest=1[v]"
+
+if ffmpeg -hide_banner -loglevel error -y \
+  -i "$screen" -itsoffset "-$offset" -i "$sidecar" \
+  -filter_complex "$cam_f" \
+  -map '[v]' "${map_audio[@]}" \
+  -c:v libx264 -preset ultrafast -tune fastdecode -crf 23 -threads 0 \
+  "$out"
+then
+  mv -f "$out" "$screen"
+else
+  rm -f "$out"
+  omarchy-notification-send -u critical -t 5000 "Webcam mix failed" "Kept the screen recording without the camera overlay."
+fi
+
+rm -f "$sidecar" "$RECIPE"

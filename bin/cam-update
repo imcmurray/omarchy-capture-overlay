@@ -1,0 +1,14 @@
+#!/bin/bash
+# Update saved pip geometry for the post-mix.
+set -euo pipefail
+PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC1091
+source "$PLUGIN_DIR/bin/cam-lib"
+cam_load || exit 0
+CAM_X=${1:?}
+CAM_Y=${2:?}
+CAM_W=${3:?}
+CAM_H=${4:?}
+REL_X=$((CAM_X - REGION_X))
+REL_Y=$((CAM_Y - REGION_Y))
+cam_save

@@ -1,0 +1,50 @@
+#!/bin/bash
+# On success: remember placement, release the preview (frees /dev/video0),
+# start the sidecar encode, then unblock the recorder.
+set -euo pipefail
+
+PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC1091
+source "$PLUGIN_DIR/bin/cam-lib"
+
+geo=${1:-}
+sel=${2:-}
+status=${3:-cancel}
+done=${4:-}
+shape=${5:-}
+
+if [[ $status == ok ]]; then
+  if cam_load; then
+    [[ -n $shape ]] && SHAPE=$shape
+    if [[ $geo =~ ^(-?[0-9]+),(-?[0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
+      REGION_X=${BASH_REMATCH[1]}
+      REGION_Y=${BASH_REMATCH[2]}
+      REGION_W=${BASH_REMATCH[3]}
+      REGION_H=${BASH_REMATCH[4]}
+    fi
+    line=$(hyprctl clients -j 2>/dev/null | jq -r '
+      first(.[] | select(.class == "ianm.cam-preview" or .title == "ianm-cam-preview"))
+      | select(. != null)
+      | "\(.at[0]) \(.at[1]) \(.size[0]) \(.size[1])"
+    ' 2>/dev/null || true)
+    if [[ $line =~ ^(-?[0-9]+)[[:space:]](-?[0-9]+)[[:space:]]([0-9]+)[[:space:]]([0-9]+)$ ]]; then
+      CAM_X=${BASH_REMATCH[1]}
+      CAM_Y=${BASH_REMATCH[2]}
+      CAM_W=${BASH_REMATCH[3]}
+      CAM_H=${BASH_REMATCH[4]}
+    fi
+    REL_X=$((CAM_X - REGION_X))
+    REL_Y=$((CAM_Y - REGION_Y))
+    cam_save
+  fi
+else
+  "$PLUGIN_DIR/bin/stop-cam"
+  systemctl --user stop ianm-cam-sidecar.service 2>/dev/null || true
+  rm -f "$RECIPE" "$SIDECAR"
+fi
+
+printf '%s\n' "$geo" >"$sel"
+if [[ -n $shape ]]; then
+  printf '%s\n' "$shape" >>"$sel"
+fi
+printf '%s\n' "$status" >"$done"
