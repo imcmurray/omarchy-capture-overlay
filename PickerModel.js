@@ -230,3 +230,93 @@ function cursorForHandle(handle) {
   if (handle === "nw" || handle === "se") return "nwse"
   return ""
 }
+
+var BORDER_COLORS = ["accent", "red", "yellow", "green", "cyan", "blue", "magenta"]
+var BORDER_WIDTHS = ["off", "thin", "medium", "thick"]
+var WEBCAM_SHAPES = ["rectangle", "circle", "cutout"]
+
+function sanitizeBorderColor(key) {
+  var k = String(key || "")
+  if (k === "urgent") k = "red"
+  if (k === "white" || k === "black" || k === "background" || k === "foreground")
+    k = "accent"
+  for (var i = 0; i < BORDER_COLORS.length; i++) {
+    if (BORDER_COLORS[i] === k)
+      return k
+  }
+  return "accent"
+}
+
+function sanitizeWebcamShape(shape) {
+  var s = String(shape || "")
+  for (var i = 0; i < WEBCAM_SHAPES.length; i++) {
+    if (WEBCAM_SHAPES[i] === s)
+      return s
+  }
+  return "rectangle"
+}
+
+function cycleWebcamShape(current, delta) {
+  var n = WEBCAM_SHAPES.length
+  var i = 0
+  for (; i < n; i++) {
+    if (WEBCAM_SHAPES[i] === current)
+      break
+  }
+  if (i >= n) i = 0
+  var d = Number(delta) || 0
+  return WEBCAM_SHAPES[(i + (d % n) + n) % n]
+}
+
+function parseThemePalette(raw) {
+  var map = {}
+  var lines = String(raw || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var m = String(lines[i]).match(/^\s*([A-Za-z0-9_-]+)\s*=\s*["']?(#[0-9A-Fa-f]{6})/)
+    if (m)
+      map[m[1]] = m[2]
+  }
+  return map
+}
+
+function hexChroma(hex) {
+  var h = String(hex || "").replace("#", "")
+  if (h.length !== 6)
+    return 0
+  var r = parseInt(h.slice(0, 2), 16) / 255
+  var g = parseInt(h.slice(2, 4), 16) / 255
+  var b = parseInt(h.slice(4, 6), 16) / 255
+  var max = Math.max(r, g, b)
+  var min = Math.min(r, g, b)
+  return max - min
+}
+
+function themeBorderColor(key, palette) {
+  var k = sanitizeBorderColor(key)
+  if (!palette)
+    return ""
+  var base = palette[k]
+  if (k === "accent")
+    return base || ""
+  var bright = palette["bright_" + k]
+  if (base && bright)
+    return hexChroma(bright) >= hexChroma(base) ? bright : base
+  return bright || base || ""
+}
+
+function sanitizeBorderWidth(key) {
+  var k = String(key || "")
+  for (var i = 0; i < BORDER_WIDTHS.length; i++) {
+    if (BORDER_WIDTHS[i] === k)
+      return k
+  }
+  return "medium"
+}
+
+function borderWidthLabel(key) {
+  var k = sanitizeBorderWidth(key)
+  if (k === "off") return "Off"
+  if (k === "thin") return "Thin"
+  if (k === "thick") return "Thick"
+  return "Medium"
+}

@@ -38,6 +38,61 @@ else
   ok "record.sh does not PATH-wrap mpv"
 fi
 
+if grep -q 'property bool camDragging' "$PLUGIN_DIR/Service.qml" \
+  && grep -n 'mask:' "$PLUGIN_DIR/Service.qml" | grep -q camDragging \
+  && grep -q 'onCanceled: root.finishCamDrag' "$PLUGIN_DIR/Service.qml"; then
+  ok "pip drag freezes the input mask so a fast move cannot drop the grab"
+else
+  bad "pip drag is still tied to a moving pip-sized input mask"
+fi
+
+if grep -q 'function pickCamFormat' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'cameraFormat:' "$PLUGIN_DIR/CamPreview.qml"; then
+  ok "camera prefers a 24fps+ format at most 720p"
+else
+  bad "camera format is still the Qt default"
+fi
+
+if grep -q 'property int pipBorderWidth' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'border.color: root.pipBorderColor' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'setPipBorderColor' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'component PipBorderSwatch' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'component PipWidthChip' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'colorKey: "magenta"' "$PLUGIN_DIR/Service.qml"; then
+  ok "pip border color and thickness apply to rectangle and circle"
+else
+  bad "pip border is still circle-only or not user-assignable"
+fi
+
+if grep -q 'webcamShape === "cutout"' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'chooseWebcamShape("cutout")' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'component PersonCutout' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'root.cutout' "$PLUGIN_DIR/CamPreview.qml"; then
+  ok "cutout is a third webcam shape with a person silhouette"
+else
+  bad "cutout shape is missing"
+fi
+
+if grep -q 'function backToShapePanel' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'Esc to go back' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'pickPhase !== "shape"' "$PLUGIN_DIR/Service.qml"; then
+  ok "place phase can return to the options panel"
+else
+  bad "no way back from place to the options panel"
+fi
+
+python3 - "$PLUGIN_DIR/Service.qml" <<'PY' && ok "options panel is fade, border, then click-a-shape" || bad "shape cards are still above fade/border"
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text()
+sp = text.index("id: shapePanel")
+fade = text.index('text: "Fade in"', sp)
+border = text.index('text: "Border"', sp)
+click = text.index('text: "Click a shape to continue"', sp)
+rect = text.index('chooseWebcamShape("rectangle")', sp)
+assert fade < border < click < rect, (fade, border, click, rect)
+PY
+
 # --- cam-lib geometry ---
 work=$(mktemp -d)
 export XDG_RUNTIME_DIR=$work
@@ -194,6 +249,23 @@ assert(!inside(5, 5, { x: 10, y: 10, w: 20, h: 20 }), "outside");
 assert(cursorForHandle("nw") === "nwse" && cursorForHandle("n") === "ns", "cursorForHandle");
 const vis = visibleGhosts(guides, { x: 0, y: 0, w: 1920, h: 1080 });
 assert(vis.length === 1 && vis[0].label === "720p", "visibleGhosts hides current");
+assert(sanitizeBorderColor("red") === "red", "sanitizeBorderColor red");
+assert(sanitizeBorderColor("white") === "accent", "old white maps to accent");
+assert(sanitizeBorderColor("urgent") === "red", "old urgent maps to red");
+assert(sanitizeBorderColor("nope") === "accent", "sanitizeBorderColor fallback");
+assert(sanitizeBorderWidth("thick") === "thick", "sanitizeBorderWidth thick");
+assert(sanitizeBorderWidth("") === "medium", "sanitizeBorderWidth fallback");
+assert(borderWidthLabel("off") === "Off", "borderWidthLabel off");
+assert(BORDER_COLORS.length === 7 && BORDER_WIDTHS.length === 4, "border palettes");
+assert(sanitizeWebcamShape("cutout") === "cutout", "sanitizeWebcamShape cutout");
+assert(sanitizeWebcamShape("blob") === "rectangle", "sanitizeWebcamShape fallback");
+assert(cycleWebcamShape("rectangle", 1) === "circle", "cycleWebcamShape next");
+assert(cycleWebcamShape("cutout", 1) === "rectangle", "cycleWebcamShape wrap");
+const pal = parseThemePalette('accent = "#89b4fa"\nred = "#f38ba8"\nyellow = "#f9e2af"\n');
+assert(pal.accent === "#89b4fa" && pal.red === "#f38ba8", "parseThemePalette");
+assert(themeBorderColor("yellow", pal) === "#f9e2af", "themeBorderColor yellow");
+const grayPal = parseThemePalette('red = "#565d60"\nbright_red = "#de6145"\n');
+assert(themeBorderColor("red", grayPal) === "#de6145", "themeBorderColor prefers brighter red");
 process.exit(0);
 JS
 then

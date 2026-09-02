@@ -7,7 +7,7 @@ Replaces the stock slurp region picker with a live grab frame, 1080p snap guides
 ## Features
 
 - Drag a region with 1080p / 720p / 900p snap guides and draggable edges
-- Webcam shape after confirm: rectangle or circle, with fade in/out checkboxes
+- Webcam shape after confirm: rectangle, circle, or person cutout, with fade in/out and a pip border from the theme palette
 - Live pip in the grab; drag it to a corner; Super+Alt `[` / `]` eases between sizes
 - 3–2–1 replaces the pip, then the camera comes back
 - Desktop audio + microphone on the webcam menu row
@@ -37,8 +37,8 @@ omarchy restart shell
 
 1. **Alt+Print** → **With desktop + microphone audio + webcam**
 2. Drag a region (click a size guide or pull the edges)
-3. Pick **Rectangle** or **Circle**, and optionally **Fade in** / **Fade out**
-4. Drag the pip to a corner; **Super+Alt+[`** / **`]** to resize
+3. Set fade and border, then click **Rectangle**, **Circle**, or **Cutout** to continue (Esc from the next step returns here)
+4. Drag the pip to a corner; **Super+Alt+[`** / **`]** to resize; **Esc** to go back
 5. **Enter** for 3–2–1, then record
 6. **Alt+Print** again to stop (waits for the final render, then toasts)
 

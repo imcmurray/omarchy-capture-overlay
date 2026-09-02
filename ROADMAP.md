@@ -77,8 +77,8 @@ Off skips straight to record. 5 is the same surface with a longer timer.
 - **Hide cursor.** gpu-screen-recorder flag on the record command. Separate
   from the panel if it stays a simple checkbox; fine to add as a panel row
   once the panel is there.
-- **Pip border.** Circle already has an accent ring. Rectangle currently does
-  not. Cosmetic only.
+- **Pip border.** Done in 1.4.0: color + Off/Thin/Medium/Thick on the shape
+  panel, drawn on both rectangle and circle (captured in the recording).
 - **Countdown beep.** Easy and polarizing; optional, default off.
 
 ## Do not do

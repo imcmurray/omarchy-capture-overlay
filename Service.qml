@@ -48,6 +48,10 @@ Item {
   property string webcamShape: "rectangle"
   property bool fadeIn: false
   property bool fadeOut: false
+  property string pipBorderColorKey: "accent"
+  property string pipBorderWidthKey: "medium"
+  property bool pipPrefsLoaded: false
+  property var themePalette: ({})
   property int countdownValue: 3
   property int camX: 0
   property int camY: 0
@@ -55,6 +59,7 @@ Item {
   property int camH: 0
   property bool camAnimating: false
   property bool camDidDrag: false
+  property bool camDragging: false
   property bool camPreviewActive: false
   property bool wasRecording: false
 
@@ -75,6 +80,14 @@ Item {
   readonly property color frameColor: Color.accent
   readonly property color contrastColor: Color.background
   readonly property color dimColor: Util.alpha(Color.background, 0.32)
+  readonly property color pipBorderColor: root.pipBorderColorFor(root.pipBorderColorKey)
+  readonly property int pipBorderPx: root.pipBorderPxFor(root.pipBorderWidthKey)
+  readonly property int pipBorderPreview: root.pipBorderPx > 0 ? Math.max(2, Math.min(5, root.pipBorderPx)) : 0
+  readonly property string pipPrefsPath: {
+    var home = Quickshell.env("HOME") || ""
+    return home ? home + "/.config/omarchy/ianm.capture-overlay.json" : ""
+  }
+
   readonly property var currentRect: ({ x: regionX, y: regionY, w: regionW, h: regionH })
   readonly property string sizeLabel: {
     if (!root.hasRegion) return "Drag to select"
@@ -105,6 +118,8 @@ Item {
       item.webcamShape = Qt.binding(function() { return root.webcamShape })
       item.showCountdown = Qt.binding(function() { return root.pickPhase === "countdown" })
       item.countdownValue = Qt.binding(function() { return root.countdownValue })
+      item.pipBorderColor = Qt.binding(function() { return root.pipBorderColor })
+      item.pipBorderWidth = Qt.binding(function() { return root.pipBorderPx })
       item.failed.connect(function() { root.camPreviewActive = false })
     }
   }
@@ -237,6 +252,60 @@ Item {
     return "ok"
   }
 
+  function pipBorderColorFor(key) {
+    var hex = Picker.themeBorderColor(key, root.themePalette)
+    if (hex)
+      return hex
+    var k = Picker.sanitizeBorderColor(key)
+    if (k === "red") return Color.urgent
+    return Color.accent
+  }
+
+  function loadThemePalette(raw) {
+    root.themePalette = Picker.parseThemePalette(raw)
+  }
+
+  function pipBorderPxFor(key) {
+    var k = Picker.sanitizeBorderWidth(key)
+    if (k === "off") return 0
+    if (k === "thin") return Math.max(2, Style.space(2))
+    if (k === "thick") return Math.max(6, Style.space(8))
+    return Math.max(3, Style.space(4))
+  }
+
+  function setPipBorderColor(key) {
+    root.pipBorderColorKey = Picker.sanitizeBorderColor(key)
+    root.savePipPrefs()
+  }
+
+  function setPipBorderWidth(key) {
+    root.pipBorderWidthKey = Picker.sanitizeBorderWidth(key)
+    root.savePipPrefs()
+  }
+
+  function loadPipPrefs(raw) {
+    if (root.pipPrefsLoaded)
+      return
+    try {
+      var parsed = JSON.parse(String(raw || "{}"))
+      if (parsed && parsed.borderColor)
+        root.pipBorderColorKey = Picker.sanitizeBorderColor(parsed.borderColor)
+      if (parsed && parsed.borderWidth)
+        root.pipBorderWidthKey = Picker.sanitizeBorderWidth(parsed.borderWidth)
+    } catch (e) {
+    }
+    root.pipPrefsLoaded = true
+  }
+
+  function savePipPrefs() {
+    if (!root.pipPrefsLoaded || !root.pipPrefsPath)
+      return
+    pipPrefsFile.setText(JSON.stringify({
+      borderColor: root.pipBorderColorKey,
+      borderWidth: root.pipBorderWidthKey
+    }) + "\n")
+  }
+
   function confirmRegion() {
     if (!root.hasRegion)
       return "empty"
@@ -250,12 +319,22 @@ Item {
   }
 
   function chooseWebcamShape(shape) {
-    root.webcamShape = shape === "circle" ? "circle" : "rectangle"
+    root.webcamShape = Picker.sanitizeWebcamShape(shape)
     return root.beginWebcamPlace()
   }
 
+  function backToShapePanel() {
+    if (root.pickPhase !== "place")
+      return "idle"
+    root.camDragging = false
+    root.pickPhase = "shape"
+    root.ghosts = []
+    root.pickHandle = ""
+    return "shape"
+  }
+
   function grabPlacement() {
-    if (root.webcamShape === "circle") {
+    if (root.webcamShape === "circle" || root.webcamShape === "cutout") {
       var side = Math.min(root.regionW, root.regionH)
       return {
         x: root.regionX + Math.round((root.regionW - side) / 2),
@@ -296,11 +375,14 @@ Item {
     root.camAnimating = false
     root.camDidDrag = true
     var p = root.clampCamPos(x, y, root.camW, root.camH)
+    if (p.x === root.camX && p.y === root.camY)
+      return
     root.camX = p.x
     root.camY = p.y
   }
 
   function finishCamDrag() {
+    root.camDragging = false
     root.camAnimating = true
     if (!root.camDidDrag) {
       root.persistCam()
@@ -338,7 +420,7 @@ Item {
       return "idle"
     var fillW = root.regionW
     var fillH = root.regionH
-    if (root.webcamShape === "circle") {
+    if (root.webcamShape === "circle" || root.webcamShape === "cutout") {
       fillW = Math.min(root.regionW, root.regionH)
       fillH = fillW
     }
@@ -374,26 +456,40 @@ Item {
     root.pickPhase = "place"
     root.ghosts = []
     root.pickHandle = ""
-    var p = root.grabPlacement()
-    root.camAnimating = false
-    root.camX = p.x
-    root.camY = p.y
-    root.camW = p.w
-    root.camH = p.h
-    Qt.callLater(function() { root.camAnimating = true })
-    var region = root.regionW + "x" + root.regionH + "+" + root.regionX + "+" + root.regionY
-    Quickshell.execDetached([
-      root.pluginDir + "/bin/start-cam",
-      root.webcamShape,
-      region,
-      root.fadeIn ? "1" : "0",
-      root.fadeOut ? "1" : "0"
-    ])
-    root.camPreviewActive = true
+    if (!root.camPreviewActive) {
+      var p = root.grabPlacement()
+      root.camAnimating = false
+      root.camX = p.x
+      root.camY = p.y
+      root.camW = p.w
+      root.camH = p.h
+      Qt.callLater(function() { root.camAnimating = true })
+      var region = root.regionW + "x" + root.regionH + "+" + root.regionX + "+" + root.regionY
+      Quickshell.execDetached([
+        root.pluginDir + "/bin/start-cam",
+        root.webcamShape,
+        region,
+        root.fadeIn ? "1" : "0",
+        root.fadeOut ? "1" : "0"
+      ])
+      root.camPreviewActive = true
+    } else if (root.webcamShape === "circle" || root.webcamShape === "cutout") {
+      var side = Math.min(root.camW, root.camH)
+      var cx = root.camX + root.camW / 2
+      var cy = root.camY + root.camH / 2
+      var p2 = root.clampCamPos(cx - side / 2, cy - side / 2, side, side)
+      root.camAnimating = true
+      root.camX = p2.x
+      root.camY = p2.y
+      root.camW = p2.w
+      root.camH = p2.h
+      root.persistCam()
+    }
     return "place"
   }
 
   function stopWebcamPreview() {
+    root.camDragging = false
     root.camPreviewActive = false
     Quickshell.execDetached([root.pluginDir + "/bin/stop-cam"])
   }
@@ -460,7 +556,10 @@ Item {
     root.lockScreen(screen)
     var p = root.pointerAt(screen, mouse.x, mouse.y)
     if (mouse.button === Qt.RightButton) {
-      root.finishPick(false)
+      if (root.pickPhase === "place")
+        root.backToShapePanel()
+      else
+        root.finishPick(false)
       return
     }
     if (root.pickPhase === "shape" || root.pickPhase === "countdown" || root.pickPhase === "place")
@@ -563,7 +662,10 @@ Item {
 
   function handleKeys(event) {
     if (event.key === Qt.Key_Escape) {
-      root.finishPick(false)
+      if (root.pickPhase === "place")
+        root.backToShapePanel()
+      else
+        root.finishPick(false)
       event.accepted = true
       return
     }
@@ -580,10 +682,16 @@ Item {
       return
     }
     if (root.pickPhase === "shape") {
-      if (event.key === Qt.Key_Left || event.key === Qt.Key_R)
+      if (event.key === Qt.Key_Left)
+        root.webcamShape = Picker.cycleWebcamShape(root.webcamShape, -1)
+      else if (event.key === Qt.Key_Right)
+        root.webcamShape = Picker.cycleWebcamShape(root.webcamShape, 1)
+      else if (event.key === Qt.Key_R)
         root.webcamShape = "rectangle"
-      else if (event.key === Qt.Key_Right || event.key === Qt.Key_C)
+      else if (event.key === Qt.Key_C)
         root.webcamShape = "circle"
+      else if (event.key === Qt.Key_U)
+        root.webcamShape = "cutout"
       else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
         root.chooseWebcamShape(root.webcamShape)
       else
@@ -668,6 +776,25 @@ Item {
     onFileChanged: root.refresh()
     onLoaded: root.refresh()
     onLoadFailed: root.refresh()
+  }
+
+  FileView {
+    id: pipPrefsFile
+    path: root.pipPrefsPath
+    watchChanges: false
+    atomicWrites: true
+    printErrors: false
+    onLoaded: root.loadPipPrefs(text())
+    onLoadFailed: root.loadPipPrefs("")
+  }
+
+  FileView {
+    path: Color.currentThemePath + "/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.loadThemePalette(text())
+    onFileChanged: reload()
+    onLoadFailed: root.loadThemePalette("")
   }
 
   Process {
@@ -819,7 +946,7 @@ Item {
   component PipDragHandle: Item {
     required property int sx
     required property int sy
-    visible: root.camPreviewActive && root.camW > 0
+    visible: root.camPreviewActive && root.camW > 0 && root.pickPhase !== "shape"
     x: root.camX - sx
     y: root.camY - sy
     width: Math.max(1, root.camW)
@@ -828,12 +955,15 @@ Item {
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+      preventStealing: true
+      cursorShape: pressed || root.camDragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
       property real grabX: 0
       property real grabY: 0
       onPressed: function(mouse) {
         grabX = mouse.x
         grabY = mouse.y
+        root.camAnimating = false
+        root.camDragging = true
       }
       onPositionChanged: function(mouse) {
         if (!pressed)
@@ -841,6 +971,66 @@ Item {
         root.dragCam(root.camX + mouse.x - grabX, root.camY + mouse.y - grabY)
       }
       onReleased: root.finishCamDrag()
+      onCanceled: root.finishCamDrag()
+    }
+  }
+
+  component PipBorderSwatch: Item {
+    required property string colorKey
+    width: Style.space(26)
+    height: Style.space(26)
+    readonly property bool selected: root.pipBorderColorKey === colorKey
+
+    Rectangle {
+      anchors.fill: parent
+      radius: width / 2
+      color: "transparent"
+      border.color: selected ? Color.popups.text : "transparent"
+      border.width: 2
+    }
+    Rectangle {
+      anchors.centerIn: parent
+      width: Style.space(18)
+      height: Style.space(18)
+      radius: width / 2
+      color: root.pipBorderColorFor(colorKey)
+      border.color: Color.popups.border
+      border.width: 1
+    }
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: Qt.PointingHandCursor
+      onClicked: root.setPipBorderColor(colorKey)
+    }
+  }
+
+  component PipWidthChip: Item {
+    required property string widthKey
+    readonly property bool selected: root.pipBorderWidthKey === widthKey
+    width: chipLabel.implicitWidth + Style.space(16)
+    height: Style.space(26)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Math.max(2, Style.cornerRadius)
+      color: "transparent"
+      border.color: selected ? Color.accent : Color.popups.border
+      border.width: selected ? 2 : 1
+    }
+    Text {
+      id: chipLabel
+      anchors.centerIn: parent
+      text: Picker.borderWidthLabel(widthKey)
+      textFormat: Text.PlainText
+      color: Color.popups.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      font.bold: selected
+    }
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: Qt.PointingHandCursor
+      onClicked: root.setPipBorderWidth(widthKey)
     }
   }
 
@@ -859,10 +1049,15 @@ Item {
       WlrLayershell.namespace: "ianm-capture-overlay"
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-      mask: livePip.visible ? livePipHit : livePass
+      // While dragging, freeze input to the full overlay. A pip-sized mask
+      // chases the cursor, so a fast move leaves the region and Hyprland
+      // drops the grab — the pip then snaps back to the corner it left.
+      mask: root.camDragging ? liveDragHit : (livePip.visible ? livePipHit : livePass)
 
       Region { id: livePass }
       Region { id: livePipHit; item: livePip }
+      Region { id: liveDragHit; item: liveFill }
+      Item { id: liveFill; anchors.fill: parent }
 
       readonly property int sx: modelData.x
       readonly property int sy: modelData.y
@@ -983,10 +1178,11 @@ Item {
       WlrLayershell.keyboardFocus: picker.grabKeys ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
       // The camera layer is visual-only (empty mask). This overlay keeps the
       // exclusive keyboard grab so Enter/Esc still work while the pip is dragged.
+      // Freeze to the full overlay during a pip drag so the grab cannot slip.
       mask: !root.picking
         ? passClicks
         : ((root.pickPhase === "place" || root.pickPhase === "countdown")
-          ? (pickPip.visible ? pickPipHit : passClicks)
+          ? (root.camDragging ? fullInput : (pickPip.visible ? pickPipHit : passClicks))
           : fullInput)
 
       Region { id: passClicks }
@@ -1158,9 +1354,9 @@ Item {
               if (root.pickPhase === "countdown")
                 return "Recording starts in " + root.countdownValue + " · Esc to cancel"
               if (root.pickPhase === "place")
-                return "Drag the camera to a corner · Super+Alt+[ ] · Enter to countdown"
+                return "Drag the camera · Super+Alt+[ ] · Enter to countdown · Esc to go back"
               if (root.pickPhase === "shape")
-                return "Shape over the grab · fade in/out · R rectangle · C circle"
+                return "Click a shape to continue · Esc to cancel"
               if (root.hasRegion)
                 return root.sizeLabel + "   Enter to record · drag edges or click a size guide"
               return "Drag a region · snap guides are 1080p / 720p / 900p · Esc to cancel"
@@ -1178,99 +1374,10 @@ Item {
       Column {
         id: shapePanel
         visible: root.pickPhase === "shape" && picker.onPickScreen && root.hasRegion
-        z: 20
+        z: 80
         spacing: Style.space(14)
         x: picker.localX + Math.max(Style.space(8), Math.round((root.regionW - width) / 2))
         y: picker.localY + Math.max(Style.space(8), Math.round((root.regionH - height) / 2))
-
-        Row {
-          spacing: Style.space(18)
-          anchors.horizontalCenter: parent.horizontalCenter
-
-          BorderSurface {
-            width: Style.space(148)
-            height: Style.space(168)
-            radius: Style.cornerRadius
-            color: Util.alpha(Color.background, 0.94)
-            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "rectangle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "rectangle" ? 3 : 2)))
-
-            Column {
-              anchors.fill: parent
-              anchors.margins: Style.space(16)
-              spacing: Style.space(12)
-              Item {
-                width: parent.width
-                height: Style.space(88)
-                Rectangle {
-                  anchors.centerIn: parent
-                  width: Style.space(52)
-                  height: Style.space(72)
-                  radius: 2
-                  color: Util.alpha(Color.accent, 0.35)
-                  border.color: Color.accent
-                  border.width: 2
-                }
-              }
-              Text {
-                width: parent.width
-                text: "Rectangle"
-                textFormat: Text.PlainText
-                color: Color.popups.text
-                font.family: Style.font.family
-                font.pixelSize: Style.font.body
-                font.bold: true
-                horizontalAlignment: Text.AlignHCenter
-              }
-            }
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.chooseWebcamShape("rectangle")
-            }
-          }
-
-          BorderSurface {
-            width: Style.space(148)
-            height: Style.space(168)
-            radius: Style.cornerRadius
-            color: Util.alpha(Color.background, 0.94)
-            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "circle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "circle" ? 3 : 2)))
-
-            Column {
-              anchors.fill: parent
-              anchors.margins: Style.space(16)
-              spacing: Style.space(12)
-              Item {
-                width: parent.width
-                height: Style.space(88)
-                Rectangle {
-                  anchors.centerIn: parent
-                  width: Style.space(72)
-                  height: Style.space(72)
-                  radius: width / 2
-                  color: Util.alpha(Color.accent, 0.35)
-                  border.color: Color.accent
-                  border.width: 2
-                }
-              }
-              Text {
-                width: parent.width
-                text: "Circle"
-                textFormat: Text.PlainText
-                color: Color.popups.text
-                font.family: Style.font.family
-                font.pixelSize: Style.font.body
-                font.bold: true
-                horizontalAlignment: Text.AlignHCenter
-              }
-            }
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.chooseWebcamShape("circle")
-            }
-          }
-        }
 
         Row {
           spacing: Style.space(22)
@@ -1356,6 +1463,210 @@ Item {
             }
           }
         }
+
+        BorderSurface {
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: borderCol.width + Style.space(24)
+          height: borderCol.height + Style.space(16)
+          radius: Style.cornerRadius
+          color: Util.alpha(Color.background, 0.94)
+          borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+
+          Column {
+            id: borderCol
+            anchors.centerIn: parent
+            spacing: Style.space(8)
+
+            Row {
+              spacing: Style.space(8)
+              anchors.horizontalCenter: parent.horizontalCenter
+
+              Text {
+                text: "Border"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              PipBorderSwatch { colorKey: "accent" }
+              PipBorderSwatch { colorKey: "red" }
+              PipBorderSwatch { colorKey: "yellow" }
+              PipBorderSwatch { colorKey: "green" }
+              PipBorderSwatch { colorKey: "cyan" }
+              PipBorderSwatch { colorKey: "blue" }
+              PipBorderSwatch { colorKey: "magenta" }
+            }
+
+            Row {
+              spacing: Style.space(8)
+              anchors.horizontalCenter: parent.horizontalCenter
+              PipWidthChip { widthKey: "off" }
+              PipWidthChip { widthKey: "thin" }
+              PipWidthChip { widthKey: "medium" }
+              PipWidthChip { widthKey: "thick" }
+            }
+          }
+        }
+
+        Text {
+          text: "Click a shape to continue"
+          textFormat: Text.PlainText
+          color: Color.popups.text
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          font.bold: true
+          anchors.horizontalCenter: parent.horizontalCenter
+        }
+
+        Row {
+          spacing: Style.space(18)
+          anchors.horizontalCenter: parent.horizontalCenter
+
+          BorderSurface {
+            width: Style.space(148)
+            height: Style.space(168)
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.background, 0.94)
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "rectangle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "rectangle" ? 3 : 2)))
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: Style.space(16)
+              spacing: Style.space(12)
+              Item {
+                width: parent.width
+                height: Style.space(88)
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(52)
+                  height: Style.space(72)
+                  radius: 2
+                  color: Util.alpha(root.pipBorderColor, 0.35)
+                  border.color: root.pipBorderColor
+                  border.width: root.pipBorderPreview
+                }
+              }
+              Text {
+                width: parent.width
+                text: "Rectangle"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.chooseWebcamShape("rectangle")
+            }
+          }
+
+          BorderSurface {
+            width: Style.space(148)
+            height: Style.space(168)
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.background, 0.94)
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "circle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "circle" ? 3 : 2)))
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: Style.space(16)
+              spacing: Style.space(12)
+              Item {
+                width: parent.width
+                height: Style.space(88)
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(72)
+                  height: Style.space(72)
+                  radius: width / 2
+                  color: Util.alpha(root.pipBorderColor, 0.35)
+                  border.color: root.pipBorderColor
+                  border.width: root.pipBorderPreview
+                }
+              }
+              Text {
+                width: parent.width
+                text: "Circle"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.chooseWebcamShape("circle")
+            }
+          }
+
+          BorderSurface {
+            width: Style.space(148)
+            height: Style.space(168)
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.background, 0.94)
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "cutout" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "cutout" ? 3 : 2)))
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: Style.space(16)
+              spacing: Style.space(12)
+              Item {
+                width: parent.width
+                height: Style.space(88)
+                Item {
+                  anchors.centerIn: parent
+                  width: Style.space(64)
+                  height: Style.space(80)
+                  Rectangle {
+                    width: parent.width * 0.92
+                    height: parent.height * 0.52
+                    radius: width * 0.46
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    color: Util.alpha(root.pipBorderColor, 0.35)
+                    border.color: root.pipBorderColor
+                    border.width: root.pipBorderPreview
+                  }
+                  Rectangle {
+                    width: parent.width * 0.44
+                    height: width
+                    radius: width / 2
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 0
+                    color: Util.alpha(root.pipBorderColor, 0.35)
+                    border.color: root.pipBorderColor
+                    border.width: root.pipBorderPreview
+                  }
+                }
+              }
+              Text {
+                width: parent.width
+                text: "Cutout"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.chooseWebcamShape("cutout")
+            }
+          }
+        }
+
       }
     }
   }

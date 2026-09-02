@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ianm.capture-overlay",
   "name": "Capture overlay",
-  "version": "1.3.19",
+  "version": "1.5.1",
   "author": "Ian McMurray",
   "license": "MIT",
   "description": "Interactive screen-record picker with 1080p snap guides, a live webcam pip, and optional fade in/out on the saved file.",
