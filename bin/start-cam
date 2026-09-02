@@ -9,6 +9,9 @@ source "$PLUGIN_DIR/bin/cam-lib"
 
 SHAPE=${1:-rectangle}
 REGION=${2:-}
+FADE_IN=${3:-0}
+FADE_OUT=${4:-0}
+FADE_SEC=${FADE_SEC:-2.5}
 
 "$PLUGIN_DIR/bin/stop-cam" || true
 

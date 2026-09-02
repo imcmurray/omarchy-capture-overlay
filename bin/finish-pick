@@ -12,10 +12,15 @@ sel=${2:-}
 status=${3:-cancel}
 done=${4:-}
 shape=${5:-}
+fade_in=${6:-0}
+fade_out=${7:-0}
 
 if [[ $status == ok ]]; then
   if cam_load; then
     [[ -n $shape ]] && SHAPE=$shape
+    FADE_IN=$fade_in
+    FADE_OUT=$fade_out
+    FADE_SEC=${FADE_SEC:-2.5}
     if [[ $geo =~ ^(-?[0-9]+),(-?[0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]]; then
       REGION_X=${BASH_REMATCH[1]}
       REGION_Y=${BASH_REMATCH[2]}

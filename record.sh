@@ -16,13 +16,39 @@ for arg in "$@"; do
 done
 
 if $stop || pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/dev/null; then
-  mapfile -t _out < <("$REAL" "$@" || true)
-  filename=""
-  if ((${#_out[@]} > 0)); then
-    filename=${_out[-1]}
+  recording=false
+  pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/dev/null && recording=true
+  if $stop && ! $recording; then
+    "$PLUGIN_DIR/bin/stop-cam" || true
+    exit 1
   fi
+
+  rec_file=/tmp/omarchy-screenrecord-filename
+  filename=""
+  [[ -f $rec_file ]] && filename=$(cat "$rec_file" 2>/dev/null || true)
+
+  pkill -SIGINT -f "^gpu-screen-recorder" 2>/dev/null || true
+  count=0
+  while pgrep -f "^gpu-screen-recorder" >/dev/null && ((count < 50)); do
+    sleep 0.1
+    count=$((count + 1))
+  done
+  pgrep -f "^gpu-screen-recorder" >/dev/null && pkill -9 -f "^gpu-screen-recorder" 2>/dev/null || true
+  omarchy-shell -q omarchy.indicators refresh 2>/dev/null || true
+  sleep 0.4
+
+  if [[ -z $filename || ! -f $filename ]]; then
+    filename=$(ls -t "${OMARCHY_SCREENRECORD_DIR:-$HOME/Videos}"/screenrecording-*.mp4 2>/dev/null | head -1 || true)
+  fi
+  rm -f "$rec_file"
+
   if [[ -n $filename && -f $filename ]]; then
     "$PLUGIN_DIR/bin/compose-cam" "$filename" || true
+    preview="${filename%.mp4}-preview.png"
+    ffmpeg -y -ss 3 -i "$filename" -frames:v 1 -q:v 2 "$preview" -loglevel quiet 2>/dev/null || true
+    omarchy-notification-send "Screen recording saved" "Final render is ready (click to play)" \
+      -t 10000 --image "${preview:-$filename}" --exec mpv -- "$filename"
+    (sleep 2; rm -f "$preview") &
     printf '%s\n' "$filename"
   else
     "$PLUGIN_DIR/bin/stop-cam" || true

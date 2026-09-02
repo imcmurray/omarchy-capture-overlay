@@ -1,4 +1,10 @@
 {
+  "trigger.capture.screenrecord.stop": {
+    "icon": "",
+    "label": "Stop Screenrecording",
+    "when": "pgrep -f '^gpu-screen-recorder( |$)'",
+    "action": "$HOME/.config/omarchy/plugins/ianm.capture-overlay/record.sh --stop-recording"
+  },
   "trigger.capture.screenrecord.no-audio": {
     "icon": "",
     "label": "With no audio",

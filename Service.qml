@@ -46,6 +46,8 @@ Item {
   property string doneFile: ""
   property bool askWebcamShape: false
   property string webcamShape: "rectangle"
+  property bool fadeIn: false
+  property bool fadeOut: false
   property int countdownValue: 3
   property int camX: 0
   property int camY: 0
@@ -216,6 +218,8 @@ Item {
     root.doneFile = String(parsed.doneFile || "")
     root.askWebcamShape = parsed.askWebcamShape === true || parsed.askWebcamShape === "true"
     root.webcamShape = "rectangle"
+    root.fadeIn = false
+    root.fadeOut = false
     root.countdownValue = 3
     countdownTimer.stop()
     root.picking = true
@@ -384,7 +388,13 @@ Item {
     root.camH = p.h
     Qt.callLater(function() { root.camAnimating = true })
     var region = root.regionW + "x" + root.regionH + "+" + root.regionX + "+" + root.regionY
-    Quickshell.execDetached([root.pluginDir + "/bin/start-cam", root.webcamShape, region])
+    Quickshell.execDetached([
+      root.pluginDir + "/bin/start-cam",
+      root.webcamShape,
+      region,
+      root.fadeIn ? "1" : "0",
+      root.fadeOut ? "1" : "0"
+    ])
     root.camSidecarStopping = false
     root.camPreviewActive = true
     return "place"
@@ -420,9 +430,9 @@ Item {
     var shape = (ok && root.askWebcamShape) ? root.webcamShape : ""
     if (!ok)
       root.stopWebcamPreview()
-    else if (root.camPreviewActive && camEngine.item) {
+    else if (root.camPreviewActive) {
+      // Live pip is captured in the grab. Mixing a sidecar on top duplicated it.
       root.camSidecarStopping = false
-      camEngine.item.startSidecar(root.camSidecar)
     }
     if (root.selectionFile && root.doneFile) {
       Quickshell.execDetached([
@@ -431,7 +441,9 @@ Item {
         root.selectionFile,
         status,
         root.doneFile,
-        shape
+        shape,
+        root.fadeIn ? "1" : "0",
+        root.fadeOut ? "1" : "0"
       ])
     }
     root.picking = false
@@ -1162,7 +1174,7 @@ Item {
               if (root.pickPhase === "place")
                 return "Drag the camera to a corner · Super+Alt+[ ] · Enter to countdown"
               if (root.pickPhase === "shape")
-                return "Webcam shape · R rectangle · C circle · Enter to record"
+                return "Shape over the grab · fade in/out · R rectangle · C circle"
               if (root.hasRegion)
                 return root.sizeLabel + "   Enter to record · drag edges or click a size guide"
               return "Drag a region · snap guides are 1080p / 720p / 900p · Esc to cancel"
@@ -1177,94 +1189,185 @@ Item {
         }
       }
 
-      Row {
-        visible: root.pickPhase === "shape" && picker.onPickScreen
+      Column {
+        id: shapePanel
+        visible: root.pickPhase === "shape" && picker.onPickScreen && root.hasRegion
         z: 20
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(18)
+        spacing: Style.space(14)
+        x: picker.localX + Math.max(Style.space(8), Math.round((root.regionW - width) / 2))
+        y: picker.localY + Math.max(Style.space(8), Math.round((root.regionH - height) / 2))
 
-        BorderSurface {
-          width: Style.space(148)
-          height: Style.space(168)
-          radius: Style.cornerRadius
-          color: Util.alpha(Color.background, 0.94)
-          borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "rectangle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "rectangle" ? 3 : 2)))
+        Row {
+          spacing: Style.space(18)
+          anchors.horizontalCenter: parent.horizontalCenter
 
-          Column {
-            anchors.fill: parent
-            anchors.margins: Style.space(16)
-            spacing: Style.space(12)
-            Item {
-              width: parent.width
-              height: Style.space(88)
-              Rectangle {
-                anchors.centerIn: parent
-                width: Style.space(52)
-                height: Style.space(72)
-                radius: 2
-                color: Util.alpha(Color.accent, 0.35)
-                border.color: Color.accent
-                border.width: 2
+          BorderSurface {
+            width: Style.space(148)
+            height: Style.space(168)
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.background, 0.94)
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "rectangle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "rectangle" ? 3 : 2)))
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: Style.space(16)
+              spacing: Style.space(12)
+              Item {
+                width: parent.width
+                height: Style.space(88)
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(52)
+                  height: Style.space(72)
+                  radius: 2
+                  color: Util.alpha(Color.accent, 0.35)
+                  border.color: Color.accent
+                  border.width: 2
+                }
+              }
+              Text {
+                width: parent.width
+                text: "Rectangle"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
               }
             }
-            Text {
-              width: parent.width
-              text: "Rectangle"
-              textFormat: Text.PlainText
-              color: Color.popups.text
-              font.family: Style.font.family
-              font.pixelSize: Style.font.body
-              font.bold: true
-              horizontalAlignment: Text.AlignHCenter
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.chooseWebcamShape("rectangle")
             }
           }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.chooseWebcamShape("rectangle")
+
+          BorderSurface {
+            width: Style.space(148)
+            height: Style.space(168)
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.background, 0.94)
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "circle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "circle" ? 3 : 2)))
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: Style.space(16)
+              spacing: Style.space(12)
+              Item {
+                width: parent.width
+                height: Style.space(88)
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(72)
+                  height: Style.space(72)
+                  radius: width / 2
+                  color: Util.alpha(Color.accent, 0.35)
+                  border.color: Color.accent
+                  border.width: 2
+                }
+              }
+              Text {
+                width: parent.width
+                text: "Circle"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.chooseWebcamShape("circle")
+            }
           }
         }
 
-        BorderSurface {
-          width: Style.space(148)
-          height: Style.space(168)
-          radius: Style.cornerRadius
-          color: Util.alpha(Color.background, 0.94)
-          borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "circle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "circle" ? 3 : 2)))
+        Row {
+          spacing: Style.space(22)
+          anchors.horizontalCenter: parent.horizontalCenter
 
-          Column {
-            anchors.fill: parent
-            anchors.margins: Style.space(16)
-            spacing: Style.space(12)
-            Item {
-              width: parent.width
-              height: Style.space(88)
+          Item {
+            width: fadeInRow.implicitWidth
+            height: fadeInRow.implicitHeight
+            Row {
+              id: fadeInRow
+              spacing: Style.space(8)
               Rectangle {
-                anchors.centerIn: parent
-                width: Style.space(72)
-                height: Style.space(72)
-                radius: width / 2
-                color: Util.alpha(Color.accent, 0.35)
+                width: Style.space(18)
+                height: Style.space(18)
+                radius: 3
+                anchors.verticalCenter: parent.verticalCenter
+                color: root.fadeIn ? Color.accent : "transparent"
                 border.color: Color.accent
                 border.width: 2
+                Text {
+                  anchors.centerIn: parent
+                  visible: root.fadeIn
+                  text: "✓"
+                  color: Color.background
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+              Text {
+                text: "Fade in"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
               }
             }
-            Text {
-              width: parent.width
-              text: "Circle"
-              textFormat: Text.PlainText
-              color: Color.popups.text
-              font.family: Style.font.family
-              font.pixelSize: Style.font.body
-              font.bold: true
-              horizontalAlignment: Text.AlignHCenter
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.fadeIn = !root.fadeIn
             }
           }
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.chooseWebcamShape("circle")
+
+          Item {
+            width: fadeOutRow.implicitWidth
+            height: fadeOutRow.implicitHeight
+            Row {
+              id: fadeOutRow
+              spacing: Style.space(8)
+              Rectangle {
+                width: Style.space(18)
+                height: Style.space(18)
+                radius: 3
+                anchors.verticalCenter: parent.verticalCenter
+                color: root.fadeOut ? Color.accent : "transparent"
+                border.color: Color.accent
+                border.width: 2
+                Text {
+                  anchors.centerIn: parent
+                  visible: root.fadeOut
+                  text: "✓"
+                  color: Color.background
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+              Text {
+                text: "Fade out"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.fadeOut = !root.fadeOut
+            }
           }
         }
       }
