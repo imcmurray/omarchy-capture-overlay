@@ -55,6 +55,7 @@ Without webcam, the same picker still wraps the other screenrecord menu rows.
 | `bin/compose-cam` | Fade in/out on the saved file |
 | `bin/test-core` | Script and picker unit tests |
 | `bin/test-overlay` | Unit tests plus idle / menu / picker checks |
+| `ROADMAP.md` | Later work: in-grab options panel (fades, length, countdown) |
 
 ## License
 
