@@ -114,6 +114,7 @@ Off skips straight to record. 5 is the same surface with a longer timer.
 | `bin/test-overlay` | Options panel appears on a non-webcam pick, cancel still unmaps. |
 
 Hard-won constraints to keep: empty mask on `ianm-cam-preview` (visual only);
-overlay order overlay=1, countdown=40, menu=50; never call stock stop; menu
-jsonc overrides must keep `icon` / `label` / `when` or the stop row shows the
-raw id.
+overlay order overlay=1, countdown=40, menu=50; never call stock stop; add
+`trigger.capture.screenrecord.overlay` instead of replacing the stock webcam
+row; the stop override must keep `icon` / `label` / `when` or the stop row
+shows the raw id.

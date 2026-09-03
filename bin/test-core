@@ -38,6 +38,32 @@ else
   ok "record.sh does not PATH-wrap mpv"
 fi
 
+python3 - "$PLUGIN_DIR/config/omarchy-menu.jsonc" <<'PY' && ok "menu snippet adds overlay without replacing stock webcam" || bad "menu snippet still hijacks stock screenrecord rows"
+import json, re, sys
+from pathlib import Path
+raw = Path(sys.argv[1]).read_text()
+raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+raw = re.sub(r"^\s*//.*$", "", raw, flags=re.M)
+raw = re.sub(r",(\s*[}\]])", r"\1", raw)
+m = json.loads(raw)
+assert "trigger.capture.screenrecord.overlay" in m, m.keys()
+row = m["trigger.capture.screenrecord.overlay"]
+assert row.get("label") == "With overlay + desktop + microphone audio", row
+assert "--with-webcam" in row.get("action", ""), row
+assert "ianm.capture-overlay/record.sh" in row.get("action", ""), row
+assert row.get("when") == "omarchy-hw-webcam", row
+stop = m.get("trigger.capture.screenrecord.stop") or {}
+assert stop.get("label") == "Stop Screenrecording", stop
+assert "ianm.capture-overlay/record.sh --stop-recording" in stop.get("action", ""), stop
+for stock in (
+    "trigger.capture.screenrecord.no-audio",
+    "trigger.capture.screenrecord.desktop-audio",
+    "trigger.capture.screenrecord.microphone",
+    "trigger.capture.screenrecord.webcam",
+):
+    assert stock not in m, stock
+PY
+
 if grep -q 'property bool camDragging' "$PLUGIN_DIR/Service.qml" \
   && grep -n 'mask:' "$PLUGIN_DIR/Service.qml" | grep -q camDragging \
   && grep -q 'onCanceled: root.finishCamDrag' "$PLUGIN_DIR/Service.qml"; then

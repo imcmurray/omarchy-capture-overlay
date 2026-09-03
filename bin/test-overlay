@@ -53,13 +53,14 @@ print('ABSENT')
 }
 
 parse_menu() {
-  python3 - <<'PY'
-import json, re, pathlib
-p = pathlib.Path.home() / ".config/omarchy/extensions/omarchy-menu.jsonc"
-raw = re.sub(r"/\*.*?\*/", "", p.read_text(), flags=re.S)
+  python3 - "$1" "$2" <<'PY'
+import json, re, pathlib, sys
+src, dest = sys.argv[1], sys.argv[2]
+raw = pathlib.Path(src).read_text()
+raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
 raw = re.sub(r"^\s*//.*$", "", raw, flags=re.M)
 raw = re.sub(r",(\s*[}\]])", r"\1", raw)
-json.dump(json.loads(raw), open("/tmp/ianm-menu.json", "w"))
+json.dump(json.loads(raw), open(dest, "w"))
 PY
 }
 
@@ -95,25 +96,37 @@ else
 fi
 [[ -x $PLUGIN_DIR/record.sh ]] && ok "record.sh executable" || bad "record.sh missing"
 [[ -x $PLUGIN_DIR/pick.sh ]] && ok "pick.sh executable" || bad "pick.sh missing"
-if parse_menu; then
-  ok "menu jsonc parses"
-  python3 - <<'PY' && ok "stop row keeps label and plugin action" || bad "stop row missing label/action"
+if parse_menu "$PLUGIN_DIR/config/omarchy-menu.jsonc" /tmp/ianm-plugin-menu.json; then
+  ok "plugin menu snippet parses"
+  python3 - <<'PY' && ok "plugin snippet adds overlay and keeps stock webcam" || bad "plugin snippet still hijacks stock webcam"
 import json
-m=json.load(open("/tmp/ianm-menu.json"))
-row=m.get("trigger.capture.screenrecord.stop") or {}
-assert row.get("label")=="Stop Screenrecording", row
-assert "ianm.capture-overlay/record.sh --stop-recording" in row.get("action",""), row
-assert "gpu-screen-recorder" in row.get("when",""), row
-PY
-  python3 - <<'PY' && ok "webcam row still calls plugin record.sh" || bad "webcam row action is wrong"
-import json
-m=json.load(open("/tmp/ianm-menu.json"))
-row=m.get("trigger.capture.screenrecord.webcam") or {}
+m=json.load(open("/tmp/ianm-plugin-menu.json"))
+stop=m.get("trigger.capture.screenrecord.stop") or {}
+assert stop.get("label")=="Stop Screenrecording", stop
+assert "ianm.capture-overlay/record.sh --stop-recording" in stop.get("action",""), stop
+assert "gpu-screen-recorder" in stop.get("when",""), stop
+row=m.get("trigger.capture.screenrecord.overlay") or {}
+assert row.get("label")=="With overlay + desktop + microphone audio", row
 assert "ianm.capture-overlay/record.sh" in row.get("action",""), row
 assert "--with-webcam" in row.get("action",""), row
+assert "trigger.capture.screenrecord.webcam" not in m
 PY
 else
-  bad "menu jsonc does not parse"
+  bad "plugin menu snippet does not parse"
+fi
+if parse_menu "$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" /tmp/ianm-menu.json; then
+  ok "user menu jsonc parses"
+  python3 - <<'PY' && ok "live menu has overlay row and does not replace stock webcam" || bad "live menu overlay row is wrong"
+import json
+m=json.load(open("/tmp/ianm-menu.json"))
+row=m.get("trigger.capture.screenrecord.overlay") or {}
+assert "ianm.capture-overlay/record.sh" in row.get("action",""), row
+assert "--with-webcam" in row.get("action",""), row
+webcam=m.get("trigger.capture.screenrecord.webcam") or {}
+assert "ianm.capture-overlay/record.sh" not in webcam.get("action",""), webcam
+PY
+else
+  bad "user menu jsonc does not parse"
 fi
 
 # 4. pgrep must not error (used by record.sh stop path)

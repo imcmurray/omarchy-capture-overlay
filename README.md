@@ -16,7 +16,7 @@ That clones the plugin, validates the manifest, and loads the overlay service. `
 
 Alt+Print still uses stock screenrecord until you wire the three snippets in `config/`:
 
-1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc` so the recording rows call this plugin’s `record.sh`.
+1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc`. That keeps the stock screenrecord rows and adds **With overlay + desktop + microphone audio**, plus a stop row that waits for the fade render.
 2. **Hyprland layers** — append `config/hyprland.lua` to `~/.config/hypr/hyprland.lua`.
 3. **Bindings** — append `config/bindings.lua` to `~/.config/hypr/bindings.lua` (unbinds stock Alt+Print and Super+Alt `[` / `]` first, and installs the Show keys hook).
 
@@ -29,14 +29,14 @@ omarchy restart shell
 
 ## Use
 
-1. **Alt+Print** → **With desktop + microphone audio + webcam**
+1. **Alt+Print** → **With overlay + desktop + microphone audio**
 2. Drag a region (click a size guide or pull the edges)
 3. Set fade, **Show keys**, border, and corner radius, then click **Rectangle**, **Square**, **Circle**, or **Oval** to continue (Esc from the next step returns here)
 4. Drag the pip; grab the handles to crop the camera inside the shape (oval also rotates from the top knob). If more than one camera is plugged in, pick it from the menu under the preview. Super+Alt `[` / `]` resizes the pip. **Esc** to go back
 5. **Enter** for 3–2–1, then record
 6. **Alt+Print** again to stop (waits for the final render, then toasts)
 
-Without webcam, the same picker still wraps the other screenrecord menu rows.
+Stock **With desktop + microphone audio + webcam** is still the Omarchy pip.
 
 **Show keys** draws Super/Ctrl/Alt chords at the bottom of the grab (and in the recording). Bare typing stays hidden. It needs the bindings.lua hook above so keys still show after 3–2–1, when the overlay no longer has keyboard focus.
 

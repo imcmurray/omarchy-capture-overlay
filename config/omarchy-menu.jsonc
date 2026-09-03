@@ -1,28 +1,17 @@
 {
+  // Stop still goes through the plugin so fades render before the toast.
   "trigger.capture.screenrecord.stop": {
     "icon": "",
     "label": "Stop Screenrecording",
     "when": "pgrep -f '^gpu-screen-recorder( |$)'",
     "action": "$HOME/.config/omarchy/plugins/ianm.capture-overlay/record.sh --stop-recording"
   },
-  "trigger.capture.screenrecord.no-audio": {
+  // Extra row after the stock webcam option. Do not reuse the stock ids —
+  // no-audio / desktop / microphone / webcam stay on omarchy-capture-screenrecording.
+  "trigger.capture.screenrecord.overlay": {
     "icon": "",
-    "label": "With no audio",
-    "action": "$HOME/.config/omarchy/plugins/ianm.capture-overlay/record.sh"
-  },
-  "trigger.capture.screenrecord.desktop-audio": {
-    "icon": "",
-    "label": "With desktop audio",
-    "action": "$HOME/.config/omarchy/plugins/ianm.capture-overlay/record.sh --with-desktop-audio"
-  },
-  "trigger.capture.screenrecord.microphone": {
-    "icon": "",
-    "label": "With desktop + microphone audio",
-    "action": "$HOME/.config/omarchy/plugins/ianm.capture-overlay/record.sh --with-desktop-audio --with-microphone-audio"
-  },
-  "trigger.capture.screenrecord.webcam": {
-    "icon": "",
-    "label": "With desktop + microphone audio + webcam",
+    "label": "With overlay + desktop + microphone audio",
+    "description": "Interactive grab, webcam pip, and fades",
     "when": "omarchy-hw-webcam",
     "action": "$HOME/.config/omarchy/plugins/ianm.capture-overlay/record.sh --with-desktop-audio --with-microphone-audio --with-webcam"
   }
