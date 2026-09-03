@@ -22,6 +22,7 @@ CAM_X=${CAM_X:-0}
 CAM_Y=${CAM_Y:-0}
 CAM_W=${CAM_W:-0}
 CAM_H=${CAM_H:-0}
+CAM_ROT=${CAM_ROT:-0}
 REL_X=${REL_X:-0}
 REL_Y=${REL_Y:-0}
 FADE_IN=${FADE_IN:-0}
@@ -33,7 +34,7 @@ EOF
 cam_fill_from_region() {
   local rx=$1 ry=$2 rw=$3 rh=$4
   REGION_X=$rx REGION_Y=$ry REGION_W=$rw REGION_H=$rh
-  if [[ ${SHAPE:-rectangle} == circle ]]; then
+  if [[ ${SHAPE:-rectangle} == circle || ${SHAPE:-rectangle} == square ]]; then
     local side=$rw
     ((rh < side)) && side=$rh
     ((side < 48)) && side=48

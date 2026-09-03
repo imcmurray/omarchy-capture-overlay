@@ -64,13 +64,23 @@ else
   bad "pip border is still circle-only or not user-assignable"
 fi
 
-if grep -q 'webcamShape === "cutout"' "$PLUGIN_DIR/Service.qml" \
-  && grep -q 'chooseWebcamShape("cutout")' "$PLUGIN_DIR/Service.qml" \
-  && grep -q 'component PersonCutout' "$PLUGIN_DIR/CamPreview.qml" \
-  && grep -q 'root.cutout' "$PLUGIN_DIR/CamPreview.qml"; then
-  ok "cutout is a third webcam shape with a person silhouette"
+if grep -q 'chooseWebcamShape("square")' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'chooseWebcamShape("oval")' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'webcamShape === "oval"' "$PLUGIN_DIR/CamPreview.qml" \
+  && ! grep -q 'cutout' "$PLUGIN_DIR/Service.qml" \
+  && ! grep -q 'PersonCutout' "$PLUGIN_DIR/CamPreview.qml"; then
+  ok "webcam shapes are rectangle, square, circle, and oval"
 else
-  bad "cutout shape is missing"
+  bad "webcam shapes still include cutout or are missing square/oval"
+fi
+
+if grep -q 'function cropCamFrom' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'function setCamRot' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'camInsetL' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'showHandles' "$PLUGIN_DIR/Service.qml"; then
+  ok "place preview handles crop the video inside the shape"
+else
+  bad "pip crop handles are missing"
 fi
 
 if grep -q 'function backToShapePanel' "$PLUGIN_DIR/Service.qml" \
@@ -115,6 +125,24 @@ else
   bad "circle pip geometry: $CAM_X,$CAM_Y ${CAM_W}x${CAM_H}"
 fi
 
+SHAPE=square
+cam_fill_from_region 100 200 1920 1080
+if [[ $CAM_W == 1080 && $CAM_H == 1080 && $CAM_X == $((100 + (1920 - 1080) / 2)) ]]; then
+  ok "square pip is a centered square in the grab"
+else
+  bad "square pip geometry: $CAM_X,$CAM_Y ${CAM_W}x${CAM_H}"
+fi
+
+SHAPE=oval
+cam_fill_from_region 10 20 1920 1080
+if [[ $CAM_X == 10 && $CAM_Y == 20 && $CAM_W == 1920 && $CAM_H == 1080 ]]; then
+  ok "oval pip fills the grab"
+else
+  bad "oval pip geometry: $CAM_X,$CAM_Y ${CAM_W}x${CAM_H}"
+fi
+
+SHAPE=circle
+cam_fill_from_region 100 200 1920 1080
 FADE_IN=1 FADE_OUT=0 FADE_SEC=2.5
 cam_save
 unset SHAPE REGION_X CAM_W FADE_IN FADE_OUT FADE_SEC
@@ -257,10 +285,13 @@ assert(sanitizeBorderWidth("thick") === "thick", "sanitizeBorderWidth thick");
 assert(sanitizeBorderWidth("") === "medium", "sanitizeBorderWidth fallback");
 assert(borderWidthLabel("off") === "Off", "borderWidthLabel off");
 assert(BORDER_COLORS.length === 7 && BORDER_WIDTHS.length === 4, "border palettes");
-assert(sanitizeWebcamShape("cutout") === "cutout", "sanitizeWebcamShape cutout");
+assert(sanitizeWebcamShape("oval") === "oval", "sanitizeWebcamShape oval");
+assert(sanitizeWebcamShape("cutout") === "rectangle", "old cutout maps to rectangle");
 assert(sanitizeWebcamShape("blob") === "rectangle", "sanitizeWebcamShape fallback");
-assert(cycleWebcamShape("rectangle", 1) === "circle", "cycleWebcamShape next");
-assert(cycleWebcamShape("cutout", 1) === "rectangle", "cycleWebcamShape wrap");
+assert(isSquarePip("square") && isSquarePip("circle") && !isSquarePip("oval"), "isSquarePip");
+assert(isRoundPip("circle") && isRoundPip("oval") && !isRoundPip("square"), "isRoundPip");
+assert(cycleWebcamShape("rectangle", 1) === "square", "cycleWebcamShape next");
+assert(cycleWebcamShape("oval", 1) === "rectangle", "cycleWebcamShape wrap");
 const pal = parseThemePalette('accent = "#89b4fa"\nred = "#f38ba8"\nyellow = "#f9e2af"\n');
 assert(pal.accent === "#89b4fa" && pal.red === "#f38ba8", "parseThemePalette");
 assert(themeBorderColor("yellow", pal) === "#f9e2af", "themeBorderColor yellow");

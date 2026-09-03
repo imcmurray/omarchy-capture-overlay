@@ -57,9 +57,15 @@ Item {
   property int camY: 0
   property int camW: 0
   property int camH: 0
+  property real camRot: 0
+  property real camInsetL: 0
+  property real camInsetT: 0
+  property real camInsetR: 0
+  property real camInsetB: 0
   property bool camAnimating: false
   property bool camDidDrag: false
   property bool camDragging: false
+  property bool camResizing: false
   property bool camPreviewActive: false
   property bool wasRecording: false
 
@@ -115,6 +121,11 @@ Item {
       item.camY = Qt.binding(function() { return root.camY })
       item.camW = Qt.binding(function() { return root.camW })
       item.camH = Qt.binding(function() { return root.camH })
+      item.camRot = Qt.binding(function() { return root.webcamShape === "oval" ? root.camRot : 0 })
+      item.camInsetL = Qt.binding(function() { return root.camInsetL })
+      item.camInsetT = Qt.binding(function() { return root.camInsetT })
+      item.camInsetR = Qt.binding(function() { return root.camInsetR })
+      item.camInsetB = Qt.binding(function() { return root.camInsetB })
       item.webcamShape = Qt.binding(function() { return root.webcamShape })
       item.showCountdown = Qt.binding(function() { return root.pickPhase === "countdown" })
       item.countdownValue = Qt.binding(function() { return root.countdownValue })
@@ -227,6 +238,11 @@ Item {
     root.doneFile = String(parsed.doneFile || "")
     root.askWebcamShape = parsed.askWebcamShape === true || parsed.askWebcamShape === "true"
     root.webcamShape = "rectangle"
+    root.camRot = 0
+    root.camInsetL = 0
+    root.camInsetT = 0
+    root.camInsetR = 0
+    root.camInsetB = 0
     root.fadeIn = false
     root.fadeOut = false
     root.countdownValue = 3
@@ -334,7 +350,7 @@ Item {
   }
 
   function grabPlacement() {
-    if (root.webcamShape === "circle" || root.webcamShape === "cutout") {
+    if (Picker.isSquarePip(root.webcamShape)) {
       var side = Math.min(root.regionW, root.regionH)
       return {
         x: root.regionX + Math.round((root.regionW - side) / 2),
@@ -352,23 +368,116 @@ Item {
   Behavior on camH { enabled: root.camAnimating; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
   function clampCamPos(x, y, w, h) {
+    return root.clampCamBox(x, y, w, h, root.camRot)
+  }
+
+  function camAABB(x, y, w, h, rotDeg) {
+    var rot = (root.webcamShape === "oval" ? rotDeg : 0) * Math.PI / 180
+    var c = Math.cos(rot)
+    var s = Math.sin(rot)
+    var bw = Math.abs(w * c) + Math.abs(h * s)
+    var bh = Math.abs(w * s) + Math.abs(h * c)
+    var cx = x + w / 2
+    var cy = y + h / 2
+    return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh, cx: cx, cy: cy }
+  }
+
+  function clampCamBox(x, y, w, h, rot) {
     w = Math.max(48, Math.round(w))
     h = Math.max(48, Math.round(h))
-    if (root.hasRegion) {
-      x = Math.max(root.regionX, Math.min(Math.round(x), root.regionX + root.regionW - w))
-      y = Math.max(root.regionY, Math.min(Math.round(y), root.regionY + root.regionH - h))
-    } else {
-      x = Math.round(x)
-      y = Math.round(y)
+    if (Picker.isSquarePip(root.webcamShape)) {
+      var side = Math.max(48, Math.round((w + h) / 2))
+      w = side
+      h = side
     }
-    return { x: x, y: y, w: w, h: h }
+    var cx = x + w / 2
+    var cy = y + h / 2
+    if (!root.hasRegion)
+      return { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w: w, h: h }
+    var rw = root.regionW
+    var rh = root.regionH
+    var box = root.camAABB(cx - w / 2, cy - h / 2, w, h, rot)
+    if (box.w > rw || box.h > rh) {
+      var k = Math.min(rw / Math.max(1, box.w), rh / Math.max(1, box.h))
+      w = Math.max(48, Math.round(w * k))
+      h = Math.max(48, Math.round(h * k))
+      if (Picker.isSquarePip(root.webcamShape)) {
+        var s2 = Math.min(w, h)
+        w = s2
+        h = s2
+      }
+      box = root.camAABB(cx - w / 2, cy - h / 2, w, h, rot)
+    }
+    if (box.x < root.regionX)
+      cx += root.regionX - box.x
+    if (box.y < root.regionY)
+      cy += root.regionY - box.y
+    if (box.x + box.w > root.regionX + rw)
+      cx -= (box.x + box.w) - (root.regionX + rw)
+    if (box.y + box.h > root.regionY + rh)
+      cy -= (box.y + box.h) - (root.regionY + rh)
+    return { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w: w, h: h }
   }
 
   function persistCam() {
     Quickshell.execDetached([
       root.pluginDir + "/bin/cam-update",
-      String(root.camX), String(root.camY), String(root.camW), String(root.camH)
+      String(root.camX), String(root.camY), String(root.camW), String(root.camH),
+      String(Math.round(root.camRot))
     ])
+  }
+
+  function cropCamFrom(handle, w0, h0, dx, dy, l0, t0, r0, b0) {
+    var nx = dx / Math.max(1, w0)
+    var ny = dy / Math.max(1, h0)
+    var l = l0
+    var t = t0
+    var r = r0
+    var b = b0
+    if (handle.indexOf("e") !== -1) r = r0 - nx
+    if (handle.indexOf("w") !== -1) l = l0 + nx
+    if (handle.indexOf("s") !== -1) b = b0 - ny
+    if (handle.indexOf("n") !== -1) t = t0 + ny
+    function clampI(v) {
+      if (v < 0) return 0
+      if (v > 0.4) return 0.4
+      return v
+    }
+    l = clampI(l)
+    t = clampI(t)
+    r = clampI(r)
+    b = clampI(b)
+    if (l + r > 0.7) {
+      var k = 0.7 / (l + r)
+      l *= k
+      r *= k
+    }
+    if (t + b > 0.7) {
+      var k2 = 0.7 / (t + b)
+      t *= k2
+      b *= k2
+    }
+    root.camInsetL = l
+    root.camInsetT = t
+    root.camInsetR = r
+    root.camInsetB = b
+  }
+
+  function setCamRot(deg) {
+    var r = deg
+    while (r > 180) r -= 360
+    while (r < -180) r += 360
+    root.camRot = r
+    var p = root.clampCamBox(root.camX, root.camY, root.camW, root.camH, r)
+    root.camX = p.x
+    root.camY = p.y
+    root.camW = p.w
+    root.camH = p.h
+  }
+
+  function finishCamResize() {
+    root.camResizing = false
+    root.persistCam()
   }
 
   function dragCam(x, y) {
@@ -420,7 +529,7 @@ Item {
       return "idle"
     var fillW = root.regionW
     var fillH = root.regionH
-    if (root.webcamShape === "circle" || root.webcamShape === "cutout") {
+    if (Picker.isSquarePip(root.webcamShape)) {
       fillW = Math.min(root.regionW, root.regionH)
       fillH = fillW
     }
@@ -456,7 +565,14 @@ Item {
     root.pickPhase = "place"
     root.ghosts = []
     root.pickHandle = ""
+    if (root.webcamShape !== "oval")
+      root.camRot = 0
+    root.camInsetL = 0
+    root.camInsetT = 0
+    root.camInsetR = 0
+    root.camInsetB = 0
     if (!root.camPreviewActive) {
+      root.camRot = 0
       var p = root.grabPlacement()
       root.camAnimating = false
       root.camX = p.x
@@ -473,11 +589,9 @@ Item {
         root.fadeOut ? "1" : "0"
       ])
       root.camPreviewActive = true
-    } else if (root.webcamShape === "circle" || root.webcamShape === "cutout") {
-      var side = Math.min(root.camW, root.camH)
-      var cx = root.camX + root.camW / 2
-      var cy = root.camY + root.camH / 2
-      var p2 = root.clampCamPos(cx - side / 2, cy - side / 2, side, side)
+    } else {
+      var next = root.grabPlacement()
+      var p2 = root.clampCamPos(next.x, next.y, next.w, next.h)
       root.camAnimating = true
       root.camX = p2.x
       root.camY = p2.y
@@ -490,6 +604,7 @@ Item {
 
   function stopWebcamPreview() {
     root.camDragging = false
+    root.camResizing = false
     root.camPreviewActive = false
     Quickshell.execDetached([root.pluginDir + "/bin/stop-cam"])
   }
@@ -688,10 +803,12 @@ Item {
         root.webcamShape = Picker.cycleWebcamShape(root.webcamShape, 1)
       else if (event.key === Qt.Key_R)
         root.webcamShape = "rectangle"
+      else if (event.key === Qt.Key_S)
+        root.webcamShape = "square"
       else if (event.key === Qt.Key_C)
         root.webcamShape = "circle"
-      else if (event.key === Qt.Key_U)
-        root.webcamShape = "cutout"
+      else if (event.key === Qt.Key_O)
+        root.webcamShape = "oval"
       else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
         root.chooseWebcamShape(root.webcamShape)
       else
@@ -944,34 +1061,167 @@ Item {
   }
 
   component PipDragHandle: Item {
+    id: pipChrome
     required property int sx
     required property int sy
+    readonly property bool showHandles: root.pickPhase === "place"
+    readonly property int handlePad: showHandles ? Style.space(14) : 0
+    readonly property int rotPad: showHandles && root.webcamShape === "oval" ? Style.space(32) : 0
+    readonly property real rotRad: (root.webcamShape === "oval" ? root.camRot : 0) * Math.PI / 180
+    readonly property int boxW: Math.max(1, Math.ceil(Math.abs(root.camW * Math.cos(rotRad)) + Math.abs(root.camH * Math.sin(rotRad))))
+    readonly property int boxH: Math.max(1, Math.ceil(Math.abs(root.camW * Math.sin(rotRad)) + Math.abs(root.camH * Math.cos(rotRad))))
     visible: root.camPreviewActive && root.camW > 0 && root.pickPhase !== "shape"
-    x: root.camX - sx
-    y: root.camY - sy
-    width: Math.max(1, root.camW)
-    height: Math.max(1, root.camH)
+    x: Math.round(root.camX + root.camW / 2 - boxW / 2) - handlePad - sx
+    y: Math.round(root.camY + root.camH / 2 - boxH / 2) - handlePad - rotPad - sy
+    width: boxW + handlePad * 2
+    height: boxH + handlePad * 2 + rotPad
 
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      preventStealing: true
-      cursorShape: pressed || root.camDragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-      property real grabX: 0
-      property real grabY: 0
-      onPressed: function(mouse) {
-        grabX = mouse.x
-        grabY = mouse.y
-        root.camAnimating = false
-        root.camDragging = true
+    Item {
+      id: pipBody
+      width: Math.max(1, root.camW)
+      height: Math.max(1, root.camH)
+      x: handlePad + (pipChrome.boxW - width) / 2
+      y: handlePad + pipChrome.rotPad + (pipChrome.boxH - height) / 2
+      rotation: root.webcamShape === "oval" ? root.camRot : 0
+      transformOrigin: Item.Center
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        preventStealing: true
+        cursorShape: pressed || root.camDragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        property real grabX: 0
+        property real grabY: 0
+        onPressed: function(mouse) {
+          var g = mapToItem(pipChrome, mouse.x, mouse.y)
+          grabX = g.x
+          grabY = g.y
+          root.camAnimating = false
+          root.camDragging = true
+        }
+        onPositionChanged: function(mouse) {
+          if (!pressed)
+            return
+          var g = mapToItem(pipChrome, mouse.x, mouse.y)
+          root.dragCam(root.camX + g.x - grabX, root.camY + g.y - grabY)
+        }
+        onReleased: root.finishCamDrag()
+        onCanceled: root.finishCamDrag()
       }
-      onPositionChanged: function(mouse) {
-        if (!pressed)
-          return
-        root.dragCam(root.camX + mouse.x - grabX, root.camY + mouse.y - grabY)
+
+      Repeater {
+        model: pipChrome.showHandles ? ["nw", "n", "ne", "e", "se", "s", "sw", "w"] : []
+        Rectangle {
+          required property string modelData
+          readonly property string handle: modelData
+          readonly property int hs: Style.space(12)
+          width: hs
+          height: hs
+          radius: 2
+          z: 30
+          color: Color.accent
+          border.color: Color.background
+          border.width: 1
+          x: handle.indexOf("w") !== -1 ? -hs / 2 : (handle.indexOf("e") !== -1 ? parent.width - hs / 2 : (parent.width - hs) / 2)
+          y: handle.indexOf("n") !== -1 ? -hs / 2 : (handle.indexOf("s") !== -1 ? parent.height - hs / 2 : (parent.height - hs) / 2)
+          MouseArea {
+            anchors.fill: parent
+            preventStealing: true
+            cursorShape: {
+              if (Picker.isSquarePip(root.webcamShape))
+                return Qt.SizeAllCursor
+              if (handle === "n" || handle === "s")
+                return Qt.SizeVerCursor
+              if (handle === "e" || handle === "w")
+                return Qt.SizeHorCursor
+              if (handle === "nw" || handle === "se")
+                return Qt.SizeFDiagCursor
+              return Qt.SizeBDiagCursor
+            }
+            property real sX: 0
+            property real sY: 0
+            property int sCamW: 0
+            property int sCamH: 0
+            property real sL: 0
+            property real sT: 0
+            property real sR: 0
+            property real sB: 0
+            onPressed: function(mouse) {
+              var p = mapToItem(pipBody, mouse.x, mouse.y)
+              sX = p.x
+              sY = p.y
+              sCamW = root.camW
+              sCamH = root.camH
+              sL = root.camInsetL
+              sT = root.camInsetT
+              sR = root.camInsetR
+              sB = root.camInsetB
+              root.camAnimating = false
+              root.camResizing = true
+            }
+            onPositionChanged: function(mouse) {
+              if (!pressed)
+                return
+              var p = mapToItem(pipBody, mouse.x, mouse.y)
+              root.cropCamFrom(handle, sCamW, sCamH, p.x - sX, p.y - sY, sL, sT, sR, sB)
+            }
+            onReleased: root.finishCamResize()
+            onCanceled: root.finishCamResize()
+          }
+        }
       }
-      onReleased: root.finishCamDrag()
-      onCanceled: root.finishCamDrag()
+
+      Item {
+        visible: pipChrome.showHandles && root.webcamShape === "oval"
+        width: Style.space(16)
+        height: Style.space(28)
+        x: (parent.width - width) / 2
+        y: -height - 2
+        z: 31
+        Rectangle {
+          width: 2
+          height: parent.height - Style.space(12)
+          anchors.horizontalCenter: parent.horizontalCenter
+          color: Color.accent
+        }
+        Rectangle {
+          width: Style.space(12)
+          height: Style.space(12)
+          radius: width / 2
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.top: parent.top
+          color: Color.accent
+          border.color: Color.background
+          border.width: 1
+        }
+        MouseArea {
+          anchors.fill: parent
+          preventStealing: true
+          cursorShape: Qt.CrossCursor
+          property real startAng: 0
+          property real startRot: 0
+          onPressed: function(mouse) {
+            var p = mapToItem(pipChrome, mouse.x, mouse.y)
+            var cx = pipBody.x + pipBody.width / 2
+            var cy = pipBody.y + pipBody.height / 2
+            startAng = Math.atan2(p.y - cy, p.x - cx)
+            startRot = root.camRot
+            root.camAnimating = false
+            root.camResizing = true
+          }
+          onPositionChanged: function(mouse) {
+            if (!pressed)
+              return
+            var p = mapToItem(pipChrome, mouse.x, mouse.y)
+            var cx = pipBody.x + pipBody.width / 2
+            var cy = pipBody.y + pipBody.height / 2
+            var ang = Math.atan2(p.y - cy, p.x - cx)
+            root.setCamRot(startRot + (ang - startAng) * 180 / Math.PI)
+          }
+          onReleased: root.finishCamResize()
+          onCanceled: root.finishCamResize()
+        }
+      }
     }
   }
 
@@ -1052,7 +1302,7 @@ Item {
       // While dragging, freeze input to the full overlay. A pip-sized mask
       // chases the cursor, so a fast move leaves the region and Hyprland
       // drops the grab — the pip then snaps back to the corner it left.
-      mask: root.camDragging ? liveDragHit : (livePip.visible ? livePipHit : livePass)
+      mask: (root.camDragging || root.camResizing) ? liveDragHit : (livePip.visible ? livePipHit : livePass)
 
       Region { id: livePass }
       Region { id: livePipHit; item: livePip }
@@ -1182,7 +1432,7 @@ Item {
       mask: !root.picking
         ? passClicks
         : ((root.pickPhase === "place" || root.pickPhase === "countdown")
-          ? (root.camDragging ? fullInput : (pickPip.visible ? pickPipHit : passClicks))
+          ? ((root.camDragging || root.camResizing) ? fullInput : (pickPip.visible ? pickPipHit : passClicks))
           : fullInput)
 
       Region { id: passClicks }
@@ -1354,7 +1604,7 @@ Item {
               if (root.pickPhase === "countdown")
                 return "Recording starts in " + root.countdownValue + " · Esc to cancel"
               if (root.pickPhase === "place")
-                return "Drag the camera · Super+Alt+[ ] · Enter to countdown · Esc to go back"
+                return "Drag · handles crop the video · oval rotates · Enter · Esc to go back"
               if (root.pickPhase === "shape")
                 return "Click a shape to continue · Esc to cancel"
               if (root.hasRegion)
@@ -1520,28 +1770,29 @@ Item {
           anchors.horizontalCenter: parent.horizontalCenter
         }
 
-        Row {
-          spacing: Style.space(18)
+        Grid {
+          columns: 2
+          spacing: Style.space(14)
           anchors.horizontalCenter: parent.horizontalCenter
 
           BorderSurface {
             width: Style.space(148)
-            height: Style.space(168)
+            height: Style.space(148)
             radius: Style.cornerRadius
             color: Util.alpha(Color.background, 0.94)
             borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "rectangle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "rectangle" ? 3 : 2)))
 
             Column {
               anchors.fill: parent
-              anchors.margins: Style.space(16)
-              spacing: Style.space(12)
+              anchors.margins: Style.space(14)
+              spacing: Style.space(10)
               Item {
                 width: parent.width
-                height: Style.space(88)
+                height: Style.space(72)
                 Rectangle {
                   anchors.centerIn: parent
                   width: Style.space(52)
-                  height: Style.space(72)
+                  height: Style.space(36)
                   radius: 2
                   color: Util.alpha(root.pipBorderColor, 0.35)
                   border.color: root.pipBorderColor
@@ -1568,22 +1819,64 @@ Item {
 
           BorderSurface {
             width: Style.space(148)
-            height: Style.space(168)
+            height: Style.space(148)
+            radius: Style.cornerRadius
+            color: Util.alpha(Color.background, 0.94)
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "square" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "square" ? 3 : 2)))
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: Style.space(14)
+              spacing: Style.space(10)
+              Item {
+                width: parent.width
+                height: Style.space(72)
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(52)
+                  height: Style.space(52)
+                  radius: 2
+                  color: Util.alpha(root.pipBorderColor, 0.35)
+                  border.color: root.pipBorderColor
+                  border.width: root.pipBorderPreview
+                }
+              }
+              Text {
+                width: parent.width
+                text: "Square"
+                textFormat: Text.PlainText
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+              }
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.chooseWebcamShape("square")
+            }
+          }
+
+          BorderSurface {
+            width: Style.space(148)
+            height: Style.space(148)
             radius: Style.cornerRadius
             color: Util.alpha(Color.background, 0.94)
             borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "circle" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "circle" ? 3 : 2)))
 
             Column {
               anchors.fill: parent
-              anchors.margins: Style.space(16)
-              spacing: Style.space(12)
+              anchors.margins: Style.space(14)
+              spacing: Style.space(10)
               Item {
                 width: parent.width
-                height: Style.space(88)
+                height: Style.space(72)
                 Rectangle {
                   anchors.centerIn: parent
-                  width: Style.space(72)
-                  height: Style.space(72)
+                  width: Style.space(52)
+                  height: Style.space(52)
                   radius: width / 2
                   color: Util.alpha(root.pipBorderColor, 0.35)
                   border.color: root.pipBorderColor
@@ -1610,47 +1903,31 @@ Item {
 
           BorderSurface {
             width: Style.space(148)
-            height: Style.space(168)
+            height: Style.space(148)
             radius: Style.cornerRadius
             color: Util.alpha(Color.background, 0.94)
-            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "cutout" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "cutout" ? 3 : 2)))
+            borderSpec: Border.surfaceSpec("popups", "border", root.webcamShape === "oval" ? Color.accent : Color.popups.border, Math.max(1, Style.space(root.webcamShape === "oval" ? 3 : 2)))
 
             Column {
               anchors.fill: parent
-              anchors.margins: Style.space(16)
-              spacing: Style.space(12)
+              anchors.margins: Style.space(14)
+              spacing: Style.space(10)
               Item {
                 width: parent.width
-                height: Style.space(88)
-                Item {
+                height: Style.space(72)
+                Rectangle {
                   anchors.centerIn: parent
                   width: Style.space(64)
-                  height: Style.space(80)
-                  Rectangle {
-                    width: parent.width * 0.92
-                    height: parent.height * 0.52
-                    radius: width * 0.46
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottom: parent.bottom
-                    color: Util.alpha(root.pipBorderColor, 0.35)
-                    border.color: root.pipBorderColor
-                    border.width: root.pipBorderPreview
-                  }
-                  Rectangle {
-                    width: parent.width * 0.44
-                    height: width
-                    radius: width / 2
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: 0
-                    color: Util.alpha(root.pipBorderColor, 0.35)
-                    border.color: root.pipBorderColor
-                    border.width: root.pipBorderPreview
-                  }
+                  height: Style.space(40)
+                  radius: height / 2
+                  color: Util.alpha(root.pipBorderColor, 0.35)
+                  border.color: root.pipBorderColor
+                  border.width: root.pipBorderPreview
                 }
               }
               Text {
                 width: parent.width
-                text: "Cutout"
+                text: "Oval"
                 textFormat: Text.PlainText
                 color: Color.popups.text
                 font.family: Style.font.family
@@ -1662,7 +1939,7 @@ Item {
             MouseArea {
               anchors.fill: parent
               cursorShape: Qt.PointingHandCursor
-              onClicked: root.chooseWebcamShape("cutout")
+              onClicked: root.chooseWebcamShape("oval")
             }
           }
         }

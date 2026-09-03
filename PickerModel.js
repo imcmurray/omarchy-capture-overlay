@@ -233,7 +233,7 @@ function cursorForHandle(handle) {
 
 var BORDER_COLORS = ["accent", "red", "yellow", "green", "cyan", "blue", "magenta"]
 var BORDER_WIDTHS = ["off", "thin", "medium", "thick"]
-var WEBCAM_SHAPES = ["rectangle", "circle", "cutout"]
+var WEBCAM_SHAPES = ["rectangle", "square", "circle", "oval"]
 
 function sanitizeBorderColor(key) {
   var k = String(key || "")
@@ -254,6 +254,16 @@ function sanitizeWebcamShape(shape) {
       return s
   }
   return "rectangle"
+}
+
+function isSquarePip(shape) {
+  var s = sanitizeWebcamShape(shape)
+  return s === "square" || s === "circle"
+}
+
+function isRoundPip(shape) {
+  var s = sanitizeWebcamShape(shape)
+  return s === "circle" || s === "oval"
 }
 
 function cycleWebcamShape(current, delta) {

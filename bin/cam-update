@@ -9,6 +9,7 @@ CAM_X=${1:?}
 CAM_Y=${2:?}
 CAM_W=${3:?}
 CAM_H=${4:?}
+CAM_ROT=${5:-0}
 REL_X=$((CAM_X - REGION_X))
 REL_Y=$((CAM_Y - REGION_Y))
 cam_save

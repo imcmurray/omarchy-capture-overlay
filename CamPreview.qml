@@ -15,57 +15,35 @@ Item {
   property int camY: 0
   property int camW: 0
   property int camH: 0
+  property real camRot: 0
+  property real camInsetL: 0
+  property real camInsetT: 0
+  property real camInsetR: 0
+  property real camInsetB: 0
   property string webcamShape: "rectangle"
   property bool showCountdown: false
   property int countdownValue: 3
   property color pipBorderColor: "#ffffff"
   property int pipBorderWidth: 0
   readonly property bool circle: root.webcamShape === "circle"
-  readonly property bool cutout: root.webcamShape === "cutout"
-  readonly property bool masked: root.circle || root.cutout
+  readonly property bool oval: root.webcamShape === "oval"
+  readonly property bool round: root.circle || root.oval
 
   signal failed()
 
-  component PersonCutout: Shape {
-    id: bust
-    property bool outlineOnly: false
-    property color fill: "#ffffff"
-    property color stroke: "#ffffff"
-    property int strokePx: 0
+  component EllipseFill: Shape {
     preferredRendererType: Shape.CurveRenderer
+    antialiasing: true
     ShapePath {
-      fillColor: bust.outlineOnly ? "transparent" : bust.fill
-      strokeColor: bust.outlineOnly ? bust.stroke : "transparent"
-      strokeWidth: bust.outlineOnly ? Math.max(1, bust.strokePx) : 0
-      capStyle: ShapePath.RoundCap
-      joinStyle: ShapePath.RoundJoin
-      startX: bust.width * 0.29
-      startY: bust.height * 0.36
+      fillColor: "#ffffff"
+      strokeWidth: 0
       PathAngleArc {
-        centerX: bust.width * 0.5
-        centerY: bust.height * 0.28
-        radiusX: bust.width * 0.22
-        radiusY: bust.height * 0.22
-        startAngle: 160
-        sweepAngle: 220
-        moveToStart: false
-      }
-      PathCubic {
-        x: bust.width * 0.98
-        y: bust.height * 0.98
-        control1X: bust.width * 0.78
-        control1Y: bust.height * 0.48
-        control2X: bust.width * 0.96
-        control2Y: bust.height * 0.68
-      }
-      PathLine { x: bust.width * 0.02; y: bust.height * 0.98 }
-      PathCubic {
-        x: bust.width * 0.29
-        y: bust.height * 0.36
-        control1X: bust.width * 0.04
-        control1Y: bust.height * 0.68
-        control2X: bust.width * 0.22
-        control2Y: bust.height * 0.48
+        centerX: width / 2
+        centerY: height / 2
+        radiusX: Math.max(1, width / 2)
+        radiusY: Math.max(1, height / 2)
+        startAngle: 0
+        sweepAngle: 360
       }
     }
   }
@@ -150,36 +128,46 @@ Item {
       y: root.camY - camLayer.sy
       width: Math.max(1, root.camW)
       height: Math.max(1, root.camH)
+      rotation: root.oval ? root.camRot : 0
+      transformOrigin: Item.Center
+      clip: true
+
+      readonly property real cropW: Math.max(0.3, 1 - root.camInsetL - root.camInsetR)
+      readonly property real cropH: Math.max(0.3, 1 - root.camInsetT - root.camInsetB)
 
       // Keep a 1px sink so CaptureSession stays alive; hide the plane off-screen
       // during countdown so it cannot cover the 3-2-1 surface.
       VideoOutput {
         id: camVideo
-        x: root.showCountdown ? -4 : 0
-        y: root.showCountdown ? -4 : 0
-        width: root.showCountdown ? 1 : parent.width
-        height: root.showCountdown ? 1 : parent.height
+        x: root.showCountdown ? -4 : -root.camInsetL * width
+        y: root.showCountdown ? -4 : -root.camInsetT * height
+        width: root.showCountdown ? 1 : parent.width / pipFrame.cropW
+        height: root.showCountdown ? 1 : parent.height / pipFrame.cropH
         fillMode: VideoOutput.PreserveAspectCrop
-        visible: !root.showCountdown && !root.masked
+        visible: !root.showCountdown && !root.round
         opacity: root.showCountdown ? 0 : 1
       }
 
       Loader {
-        anchors.fill: parent
-        active: root.circle && !root.showCountdown
+        active: root.round && !root.showCountdown
+        x: camVideo.x
+        y: camVideo.y
+        width: camVideo.width
+        height: camVideo.height
         sourceComponent: Item {
           anchors.fill: parent
 
           Item {
-            id: circleMask
+            id: roundMask
             anchors.fill: parent
             visible: false
             layer.enabled: true
             layer.smooth: true
-            Rectangle {
-              anchors.fill: parent
-              radius: Math.min(width, height) / 2
-              color: "#ffffff"
+            EllipseFill {
+              x: root.camInsetL * parent.width
+              y: root.camInsetT * parent.height
+              width: pipFrame.width
+              height: pipFrame.height
             }
           }
 
@@ -187,43 +175,9 @@ Item {
             anchors.fill: parent
             source: camVideo
             maskEnabled: true
-            maskSource: circleMask
+            maskSource: roundMask
             maskThresholdMin: 0.5
             maskSpreadAtMin: 0.02
-          }
-        }
-      }
-
-      Loader {
-        anchors.fill: parent
-        active: root.cutout && !root.showCountdown
-        sourceComponent: Item {
-          anchors.fill: parent
-
-          Item {
-            id: cutoutMask
-            anchors.fill: parent
-            visible: false
-            layer.enabled: true
-            layer.smooth: true
-            PersonCutout { anchors.fill: parent }
-          }
-
-          MultiEffect {
-            anchors.fill: parent
-            source: camVideo
-            maskEnabled: true
-            maskSource: cutoutMask
-            maskThresholdMin: 0.5
-            maskSpreadAtMin: 0.04
-          }
-
-          PersonCutout {
-            anchors.fill: parent
-            outlineOnly: true
-            stroke: root.pipBorderColor
-            strokePx: root.pipBorderWidth
-            visible: root.pipBorderWidth > 0
           }
         }
       }
@@ -231,13 +185,34 @@ Item {
       // Drawn on the live pip, so gpu-screen-recorder captures it.
       Rectangle {
         anchors.fill: parent
-        visible: !root.showCountdown && root.pipBorderWidth > 0 && !root.cutout
+        visible: !root.showCountdown && root.pipBorderWidth > 0 && !root.oval
         color: "transparent"
         radius: root.circle ? Math.min(width, height) / 2 : 0
         border.color: root.pipBorderColor
         border.width: Math.max(0, root.pipBorderWidth)
         antialiasing: true
         z: 20
+      }
+
+      Shape {
+        anchors.fill: parent
+        visible: !root.showCountdown && root.pipBorderWidth > 0 && root.oval
+        preferredRendererType: Shape.CurveRenderer
+        antialiasing: true
+        z: 20
+        ShapePath {
+          fillColor: "transparent"
+          strokeColor: root.pipBorderColor
+          strokeWidth: Math.max(1, root.pipBorderWidth)
+          PathAngleArc {
+            centerX: width / 2
+            centerY: height / 2
+            radiusX: Math.max(1, width / 2)
+            radiusY: Math.max(1, height / 2)
+            startAngle: 0
+            sweepAngle: 360
+          }
+        }
       }
     }
   }
@@ -262,7 +237,7 @@ Item {
     Rectangle {
       id: countFill
       anchors.fill: parent
-      radius: root.circle ? width / 2 : (root.cutout ? Math.min(width, height) * 0.28 : 0)
+      radius: root.circle ? width / 2 : (root.oval ? Math.min(width, height) / 2 : 0)
       color: Util.alpha(Color.background, 0.94)
       border.color: Color.accent
       border.width: Math.max(3, Style.space(4))
