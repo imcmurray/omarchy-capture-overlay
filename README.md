@@ -1,32 +1,26 @@
 # Omarchy capture overlay
 
-Interactive screen-record picker for [Omarchy](https://omarchy.org/) (Hyprland + Quickshell).
+Replace slurp with a live grab: 1080p snap guides, a webcam pip that is actually in the recording, and optional fade in/out on the saved file.
 
-Replaces the stock slurp region picker with a live grab frame, 1080p snap guides, and a webcam pip that can be a rectangle, square, circle, or oval. The live camera sits in the grab and is captured by gpu-screen-recorder. Optional fade in/out is applied to the saved file after you stop.
+![Live grab with a webcam pip](docs/preview.png)
 
-## Features
-
-- Drag a region with 1080p / 720p / 900p snap guides and draggable edges
-- Webcam shape after confirm: rectangle, square, circle, or oval, with fade in/out, a pip border from the theme palette, and a corner radius for rectangle and square
-- Live pip in the grab; drag it to a corner; pick a camera when more than one is present; Super+Alt `[` / `]` eases between sizes
-- 3–2–1 replaces the pip, then the camera comes back
-- Desktop audio + microphone on the webcam menu row
-- Fade in/out is ffmpeg post on the final file only — not on the live preview
+The pip can be a rectangle, square, circle, or oval. Rectangle and square take a corner radius. Border color comes from the theme. Fade in/out is ffmpeg post on the final file, not on the live preview.
 
 ## Install
 
 ```bash
-git clone https://github.com/imcmurray/omarchy-capture-overlay \
-  ~/.config/omarchy/plugins/ianm.capture-overlay
+omarchy plugin add https://github.com/imcmurray/omarchy-capture-overlay.git --enable
 ```
 
-Then merge the snippets in `config/`:
+That clones the plugin, validates the manifest, and loads the overlay service. `omarchy plugin update` can fast-forward it later.
 
-1. **Menu** — copy or merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc` so Alt+Print recording rows call this plugin’s `record.sh`.
+Alt+Print still uses stock screenrecord until you wire the three snippets in `config/`:
+
+1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc` so the recording rows call this plugin’s `record.sh`.
 2. **Hyprland layers** — append `config/hyprland.lua` to `~/.config/hypr/hyprland.lua`.
 3. **Bindings** — append `config/bindings.lua` to `~/.config/hypr/bindings.lua` (unbinds stock Alt+Print and Super+Alt `[` / `]` first).
 
-Reload:
+Then:
 
 ```bash
 hyprctl reload
@@ -43,6 +37,26 @@ omarchy restart shell
 6. **Alt+Print** again to stop (waits for the final render, then toasts)
 
 Without webcam, the same picker still wraps the other screenrecord menu rows.
+
+![1080p snap guides](docs/picker-guides.png)
+
+![Shape panel](docs/shape-panel.png)
+
+![Place the pip](docs/pip-place.png)
+
+## Update
+
+```bash
+omarchy plugin update ianm.capture-overlay
+```
+
+## Remove
+
+```bash
+omarchy plugin remove ianm.capture-overlay
+```
+
+That disables and deletes the plugin checkout. Remove the three `config/` snippets from your menu, Hyprland, and bindings if you want Alt+Print back on stock screenrecord, then `hyprctl reload`.
 
 ## Layout
 

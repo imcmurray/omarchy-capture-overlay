@@ -1,0 +1,1 @@
+`pip-person.jpg` / `pip-person.mp4` are a cropped still (and a short zoom of it) from [Unsplash](https://unsplash.com/photos/1544005313-94ddf0286df2), used as a stand-in for the webcam pip in the README shots.
