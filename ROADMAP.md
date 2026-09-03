@@ -8,8 +8,9 @@ panel after the region is confirmed** — not a pile of separate knobs.
 
 1. Drag / snap / adjust the grab.
 2. Enter confirms the region.
-3. **Webcam recordings only:** `pickPhase = "shape"` shows Rectangle / Circle
-   plus Fade in / Fade out, then the live pip, then 3–2–1.
+3. **Webcam recordings only:** `pickPhase = "shape"` shows rectangle / square /
+   circle / oval plus Fade in / Fade out and pip border, then the live pip
+   (drag, crop handles, Super+Alt [ ] size), then 3–2–1.
 4. **Everything else:** confirm jumps straight to 3–2–1. No fades, no options.
 
 Fades are ffmpeg post on the saved file (`bin/compose-cam`). They are **not**
@@ -28,7 +29,7 @@ as today’s shape picker). One panel for every recording.
 
 | Row | When | What |
 | --- | --- | --- |
-| Shape | Webcam only | Rectangle / Circle (already exists) |
+| Shape | Webcam only | Rectangle / Square / Circle / Oval (already exists) |
 | Fade in / Fade out | Always | Checkboxes (already exist, webcam-only today) |
 | Fade length | Always, if a fade is on | Three presets, not a free number |
 | Countdown | Always | 3 / 5 / off |
@@ -78,7 +79,13 @@ Off skips straight to record. 5 is the same surface with a longer timer.
   from the panel if it stays a simple checkbox; fine to add as a panel row
   once the panel is there.
 - **Pip border.** Done in 1.4.0: color + Off/Thin/Medium/Thick on the shape
-  panel, drawn on both rectangle and circle (captured in the recording).
+  panel, drawn on rectangle, square, circle, and oval (captured in the recording).
+- **Pip crop handles.** Done in 1.6.0: place-phase handles crop the camera
+  inside the shape; Super+Alt [ ] still resizes; oval rotates from the top knob.
+- **Camera picker.** Done in 1.7.0: when more than one webcam is present, a
+  menu under the live pip switches devices and remembers the last one.
+- **Corner radius.** Done in 1.7.0: slider on the shape panel for rectangle
+  and square; circle and oval stay fully round.
 - **Countdown beep.** Easy and polarizing; optional, default off.
 
 ## Do not do

@@ -34,7 +34,8 @@ EOF
 cam_fill_from_region() {
   local rx=$1 ry=$2 rw=$3 rh=$4
   REGION_X=$rx REGION_Y=$ry REGION_W=$rw REGION_H=$rh
-  if [[ ${SHAPE:-rectangle} == circle || ${SHAPE:-rectangle} == square ]]; then
+  case ${SHAPE:-rectangle} in
+  circle | square)
     local side=$rw
     ((rh < side)) && side=$rh
     ((side < 48)) && side=48
@@ -42,14 +43,16 @@ cam_fill_from_region() {
     CAM_H=$side
     CAM_X=$((rx + (rw - side) / 2))
     CAM_Y=$((ry + (rh - side) / 2))
-  else
+    ;;
+  *)
     CAM_W=$rw
     CAM_H=$rh
     CAM_X=$rx
     CAM_Y=$ry
     ((CAM_W < 48)) && CAM_W=48
     ((CAM_H < 48)) && CAM_H=48
-  fi
+    ;;
+  esac
   REL_X=$((CAM_X - REGION_X))
   REL_Y=$((CAM_Y - REGION_Y))
 }

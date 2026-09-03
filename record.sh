@@ -15,9 +15,11 @@ for arg in "$@"; do
   esac
 done
 
-if $stop || pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/dev/null; then
-  recording=false
-  pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/dev/null && recording=true
+gsr_running() { pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/dev/null; }
+
+recording=false
+gsr_running && recording=true
+if $stop || $recording; then
   if $stop && ! $recording; then
     "$PLUGIN_DIR/bin/stop-cam" || true
     exit 1
@@ -27,13 +29,13 @@ if $stop || pgrep -f '^gpu-screen-recorder( |$)' >/dev/null 2>/dev/null; then
   filename=""
   [[ -f $rec_file ]] && filename=$(cat "$rec_file" 2>/dev/null || true)
 
-  pkill -SIGINT -f "^gpu-screen-recorder" 2>/dev/null || true
+  pkill -SIGINT -f '^gpu-screen-recorder( |$)' 2>/dev/null || true
   count=0
-  while pgrep -f "^gpu-screen-recorder" >/dev/null && ((count < 50)); do
+  while gsr_running && ((count < 50)); do
     sleep 0.1
     count=$((count + 1))
   done
-  pgrep -f "^gpu-screen-recorder" >/dev/null && pkill -9 -f "^gpu-screen-recorder" 2>/dev/null || true
+  gsr_running && pkill -9 -f '^gpu-screen-recorder( |$)' 2>/dev/null || true
   omarchy-shell -q omarchy.indicators refresh 2>/dev/null || true
   sleep 0.4
 
@@ -60,17 +62,12 @@ if $fullscreen || [[ ${OMARCHY_SCREENRECORD_USE_PORTAL:-false} == true ]]; then
   exec "$REAL" "$@"
 fi
 
-if $webcam; then
-  pick_out=$("$PLUGIN_DIR/pick.sh" --webcam-shape) || {
-    omarchy-notification-send -u critical -t 4000 "Screen recording cancelled" "Capture region was not selected."
-    exit 1
-  }
-else
-  pick_out=$("$PLUGIN_DIR/pick.sh") || {
-    omarchy-notification-send -u critical -t 4000 "Screen recording cancelled" "Capture region was not selected."
-    exit 1
-  }
-fi
+pick_args=()
+$webcam && pick_args+=(--webcam-shape)
+pick_out=$("$PLUGIN_DIR/pick.sh" "${pick_args[@]}") || {
+  omarchy-notification-send -u critical -t 4000 "Screen recording cancelled" "Capture region was not selected."
+  exit 1
+}
 mapfile -t pick_lines <<<"$pick_out"
 geo=${pick_lines[0]:-}
 shape=${pick_lines[1]:-rectangle}

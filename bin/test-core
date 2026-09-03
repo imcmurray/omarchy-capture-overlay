@@ -11,7 +11,7 @@ bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
 echo "=== capture overlay core tests $(date) ==="
 
 # --- leftover files and strings ---
-for dead in cam-run cam-sidecar place-webcam stop-webcam pick-v4l2-mode; do
+for dead in cam-run cam-sidecar place-webcam stop-webcam pick-v4l2-mode cutout-cam blur-mask; do
   if [[ -e $PLUGIN_DIR/bin/$dead ]]; then
     bad "leftover script still present: bin/$dead"
   else
@@ -47,10 +47,23 @@ else
 fi
 
 if grep -q 'function pickCamFormat' "$PLUGIN_DIR/CamPreview.qml" \
-  && grep -q 'cameraFormat:' "$PLUGIN_DIR/CamPreview.qml"; then
-  ok "camera prefers a 24fps+ format at most 720p"
+  && grep -q 'cameraFormat:' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'function matchDevice' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'defaultVideoInput' "$PLUGIN_DIR/CamPreview.qml"; then
+  ok "camera matches a saved device, then the system default, at 24fps+ / 720p"
 else
-  bad "camera format is still the Qt default"
+  bad "camera still hardcodes a device or skips format pick"
+fi
+
+if grep -q 'function setCamera' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'cameraMenuOpen' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'showCamPick' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'id: camPick' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'readonly property alias cameraModel' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'cameraId: root.cameraId' "$PLUGIN_DIR/Service.qml"; then
+  ok "place preview can pick among cameras from a menu under the pip"
+else
+  bad "camera picker is missing from the place preview"
 fi
 
 if grep -q 'property int pipBorderWidth' "$PLUGIN_DIR/CamPreview.qml" \
@@ -59,13 +72,13 @@ if grep -q 'property int pipBorderWidth' "$PLUGIN_DIR/CamPreview.qml" \
   && grep -q 'component PipBorderSwatch' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'component PipWidthChip' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'colorKey: "magenta"' "$PLUGIN_DIR/Service.qml"; then
-  ok "pip border color and thickness apply to rectangle and circle"
+  ok "pip border color and thickness apply on the shape panel"
 else
   bad "pip border is still circle-only or not user-assignable"
 fi
 
-if grep -q 'chooseWebcamShape("square")' "$PLUGIN_DIR/Service.qml" \
-  && grep -q 'chooseWebcamShape("oval")' "$PLUGIN_DIR/Service.qml" \
+if grep -q 'shapeKey: "square"' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'shapeKey: "oval"' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'webcamShape === "oval"' "$PLUGIN_DIR/CamPreview.qml" \
   && ! grep -q 'cutout' "$PLUGIN_DIR/Service.qml" \
   && ! grep -q 'PersonCutout' "$PLUGIN_DIR/CamPreview.qml"; then
@@ -91,17 +104,28 @@ else
   bad "no way back from place to the options panel"
 fi
 
-python3 - "$PLUGIN_DIR/Service.qml" <<'PY' && ok "options panel is fade, border, then click-a-shape" || bad "shape cards are still above fade/border"
+python3 - "$PLUGIN_DIR/Service.qml" <<'PY' && ok "options panel is fade, border, corners, then click-a-shape" || bad "shape cards are still above fade/border/corners"
 from pathlib import Path
 import sys
 text = Path(sys.argv[1]).read_text()
 sp = text.index("id: shapePanel")
-fade = text.index('text: "Fade in"', sp)
+fade = text.index('label: "Fade in"', sp)
 border = text.index('text: "Border"', sp)
+corners = text.index('text: "Corners"', sp)
 click = text.index('text: "Click a shape to continue"', sp)
-rect = text.index('chooseWebcamShape("rectangle")', sp)
-assert fade < border < click < rect, (fade, border, click, rect)
+rect = text.index('shapeKey: "rectangle"', sp)
+assert fade < border < corners < click < rect, (fade, border, corners, click, rect)
 PY
+
+if grep -q 'function setPipCornerFrac' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'component CornerSlider' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'property real pipRadius' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'needsMask' "$PLUGIN_DIR/CamPreview.qml" \
+  && grep -q 'function cornerPx' "$PLUGIN_DIR/PickerModel.js"; then
+  ok "shape panel can set a corner radius on rectangle and square"
+else
+  bad "corner radius control is missing"
+fi
 
 # --- cam-lib geometry ---
 work=$(mktemp -d)
@@ -290,6 +314,9 @@ assert(sanitizeWebcamShape("cutout") === "rectangle", "old cutout maps to rectan
 assert(sanitizeWebcamShape("blob") === "rectangle", "sanitizeWebcamShape fallback");
 assert(isSquarePip("square") && isSquarePip("circle") && !isSquarePip("oval"), "isSquarePip");
 assert(isRoundPip("circle") && isRoundPip("oval") && !isRoundPip("square"), "isRoundPip");
+assert(usesCornerRadius("rectangle") && usesCornerRadius("square") && !usesCornerRadius("circle"), "usesCornerRadius");
+assert(sanitizeCornerFrac(-1) === 0 && sanitizeCornerFrac(1) === 0.5, "sanitizeCornerFrac clamp");
+assert(cornerPx(0.5, 100, 80) === 40 && cornerPx(0, 100, 80) === 0, "cornerPx");
 assert(cycleWebcamShape("rectangle", 1) === "square", "cycleWebcamShape next");
 assert(cycleWebcamShape("oval", 1) === "rectangle", "cycleWebcamShape wrap");
 const pal = parseThemePalette('accent = "#89b4fa"\nred = "#f38ba8"\nyellow = "#f9e2af"\n');

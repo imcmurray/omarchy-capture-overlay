@@ -7,8 +7,8 @@ Replaces the stock slurp region picker with a live grab frame, 1080p snap guides
 ## Features
 
 - Drag a region with 1080p / 720p / 900p snap guides and draggable edges
-- Webcam shape after confirm: rectangle, square, circle, or oval, with fade in/out and a pip border from the theme palette
-- Live pip in the grab; drag it to a corner; Super+Alt `[` / `]` eases between sizes
+- Webcam shape after confirm: rectangle, square, circle, or oval, with fade in/out, a pip border from the theme palette, and a corner radius for rectangle and square
+- Live pip in the grab; drag it to a corner; pick a camera when more than one is present; Super+Alt `[` / `]` eases between sizes
 - 3–2–1 replaces the pip, then the camera comes back
 - Desktop audio + microphone on the webcam menu row
 - Fade in/out is ffmpeg post on the final file only — not on the live preview
@@ -37,8 +37,8 @@ omarchy restart shell
 
 1. **Alt+Print** → **With desktop + microphone audio + webcam**
 2. Drag a region (click a size guide or pull the edges)
-3. Set fade and border, then click **Rectangle**, **Square**, **Circle**, or **Oval** to continue (Esc from the next step returns here)
-4. Drag the pip; grab the handles to crop the camera inside the shape (oval also rotates from the top knob). **Super+Alt+[`** / **`]** resizes the pip. **Esc** to go back
+3. Set fade, border, and corner radius, then click **Rectangle**, **Square**, **Circle**, or **Oval** to continue (Esc from the next step returns here)
+4. Drag the pip; grab the handles to crop the camera inside the shape (oval also rotates from the top knob). If more than one camera is plugged in, pick it from the menu under the preview. Super+Alt `[` / `]` resizes the pip. **Esc** to go back
 5. **Enter** for 3–2–1, then record
 6. **Alt+Print** again to stop (waits for the final render, then toasts)
 

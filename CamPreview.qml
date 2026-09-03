@@ -25,33 +25,99 @@ Item {
   property int countdownValue: 3
   property color pipBorderColor: "#ffffff"
   property int pipBorderWidth: 0
+  property real pipRadius: 0
+  property string cameraId: ""
+  property string cameraName: ""
+  property bool cameraReady: false
   readonly property bool circle: root.webcamShape === "circle"
   readonly property bool oval: root.webcamShape === "oval"
   readonly property bool round: root.circle || root.oval
+  readonly property bool needsMask: root.round || root.pipRadius > 0.5
+  readonly property alias cameraModel: cameraList
+  readonly property int cameraCount: cameraList.count
 
   signal failed()
+  signal deviceResolved(string id, string name)
 
-  component EllipseFill: Shape {
+  component EllipseShape: Shape {
+    id: ell
+    property color fillCol: "transparent"
+    property color strokeCol: "transparent"
+    property real strokePx: 0
     preferredRendererType: Shape.CurveRenderer
     antialiasing: true
     ShapePath {
-      fillColor: "#ffffff"
-      strokeWidth: 0
+      fillColor: ell.fillCol
+      strokeColor: ell.strokeCol
+      strokeWidth: ell.strokePx
       PathAngleArc {
-        centerX: width / 2
-        centerY: height / 2
-        radiusX: Math.max(1, width / 2)
-        radiusY: Math.max(1, height / 2)
+        centerX: ell.width / 2
+        centerY: ell.height / 2
+        radiusX: Math.max(1, ell.width / 2)
+        radiusY: Math.max(1, ell.height / 2)
         startAngle: 0
         sweepAngle: 360
       }
     }
   }
 
-  MediaDevices { id: mediaDevices }
+  MediaDevices {
+    id: mediaDevices
+    onVideoInputsChanged: root.refreshCameras()
+  }
 
-  // C920 YUYV 1080p is 5fps; Qt's default can pick that and the recording
-  // stutters. Prefer a 30fps mode at most 720p (MJPEG 1280x720 on a C920).
+  ListModel { id: cameraList }
+
+  function refreshCameras() {
+    var list = mediaDevices.videoInputs
+    cameraList.clear()
+    if (!list)
+      return
+    var pending = []
+    var nameCount = {}
+    for (var i = 0; i < list.length; i++) {
+      var dev = list[i]
+      if (!root.pickCamFormat(dev))
+        continue
+      var id = "" + dev.id
+      var name = String(dev.description || "").trim()
+      if (!name)
+        name = id
+      pending.push({ camId: id, camName: name })
+      nameCount[name] = (nameCount[name] || 0) + 1
+    }
+    for (var j = 0; j < pending.length; j++) {
+      var row = pending[j]
+      var label = row.camName
+      if (nameCount[label] > 1)
+        label = label + " · " + row.camId.replace(/^.*\//, "")
+      cameraList.append({ camId: row.camId, camName: label, camDesc: row.camName })
+    }
+  }
+
+  function matchDevice() {
+    var list = mediaDevices.videoInputs
+    var fallback = mediaDevices.defaultVideoInput
+    if (!list || list.length === 0)
+      return fallback
+    var i
+    if (root.cameraId) {
+      for (i = 0; i < list.length; i++) {
+        if ("" + list[i].id === root.cameraId)
+          return list[i]
+      }
+    }
+    if (root.cameraName) {
+      for (i = 0; i < list.length; i++) {
+        if ("" + list[i].description === root.cameraName)
+          return list[i]
+      }
+    }
+    return fallback || list[0]
+  }
+
+  // Some UVC cams expose YUYV 1080p at 5fps as the default; Qt will pick
+  // that and the recording stutters. Prefer 24fps+ at most 720p.
   function pickCamFormat(device) {
     if (!device)
       return undefined
@@ -86,20 +152,18 @@ Item {
 
   Camera {
     id: camera
-    cameraDevice: {
-      var list = mediaDevices.videoInputs
-      for (var i = 0; i < list.length; i++) {
-        var id = "" + list[i].id
-        var desc = "" + list[i].description
-        if (id.indexOf("video0") !== -1 || desc.indexOf("C920") !== -1 || desc.indexOf("HD Pro") !== -1)
-          return list[i]
-      }
-      return mediaDevices.defaultVideoInput
-    }
+    cameraDevice: root.matchDevice()
     cameraFormat: root.pickCamFormat(cameraDevice)
-    active: true
+    active: root.cameraReady
     onErrorOccurred: function() { root.failed() }
+    onCameraDeviceChanged: {
+      if (!cameraDevice)
+        return
+      root.deviceResolved("" + cameraDevice.id, "" + (cameraDevice.description || ""))
+    }
   }
+
+  Component.onCompleted: root.refreshCameras()
 
   CaptureSession {
     camera: camera
@@ -144,12 +208,12 @@ Item {
         width: root.showCountdown ? 1 : parent.width / pipFrame.cropW
         height: root.showCountdown ? 1 : parent.height / pipFrame.cropH
         fillMode: VideoOutput.PreserveAspectCrop
-        visible: !root.showCountdown && !root.round
+        visible: !root.showCountdown && !root.needsMask
         opacity: root.showCountdown ? 0 : 1
       }
 
       Loader {
-        active: root.round && !root.showCountdown
+        active: root.needsMask && !root.showCountdown
         x: camVideo.x
         y: camVideo.y
         width: camVideo.width
@@ -163,11 +227,23 @@ Item {
             visible: false
             layer.enabled: true
             layer.smooth: true
-            EllipseFill {
+            EllipseShape {
+              visible: root.round
               x: root.camInsetL * parent.width
               y: root.camInsetT * parent.height
               width: pipFrame.width
               height: pipFrame.height
+              fillCol: "#ffffff"
+            }
+            Rectangle {
+              visible: !root.round
+              x: root.camInsetL * parent.width
+              y: root.camInsetT * parent.height
+              width: pipFrame.width
+              height: pipFrame.height
+              radius: Math.max(0, root.pipRadius)
+              color: "#ffffff"
+              antialiasing: true
             }
           }
 
@@ -187,32 +263,19 @@ Item {
         anchors.fill: parent
         visible: !root.showCountdown && root.pipBorderWidth > 0 && !root.oval
         color: "transparent"
-        radius: root.circle ? Math.min(width, height) / 2 : 0
+        radius: root.circle ? Math.min(width, height) / 2 : Math.max(0, root.pipRadius)
         border.color: root.pipBorderColor
         border.width: Math.max(0, root.pipBorderWidth)
         antialiasing: true
         z: 20
       }
 
-      Shape {
+      EllipseShape {
         anchors.fill: parent
         visible: !root.showCountdown && root.pipBorderWidth > 0 && root.oval
-        preferredRendererType: Shape.CurveRenderer
-        antialiasing: true
         z: 20
-        ShapePath {
-          fillColor: "transparent"
-          strokeColor: root.pipBorderColor
-          strokeWidth: Math.max(1, root.pipBorderWidth)
-          PathAngleArc {
-            centerX: width / 2
-            centerY: height / 2
-            radiusX: Math.max(1, width / 2)
-            radiusY: Math.max(1, height / 2)
-            startAngle: 0
-            sweepAngle: 360
-          }
-        }
+        strokeCol: root.pipBorderColor
+        strokePx: Math.max(1, root.pipBorderWidth)
       }
     }
   }
@@ -237,7 +300,7 @@ Item {
     Rectangle {
       id: countFill
       anchors.fill: parent
-      radius: root.circle ? width / 2 : (root.oval ? Math.min(width, height) / 2 : 0)
+      radius: root.circle ? width / 2 : (root.oval ? Math.min(width, height) / 2 : Math.max(0, root.pipRadius))
       color: Util.alpha(Color.background, 0.94)
       border.color: Color.accent
       border.width: Math.max(3, Style.space(4))
