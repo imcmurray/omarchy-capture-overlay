@@ -1,6 +1,6 @@
 # Omarchy capture overlay
 
-Replace slurp with a live grab: 1080p snap guides, a webcam pip that is actually in the recording, and optional fade in/out on the saved file.
+Replace slurp with a live grab: 1080p snap guides, a webcam pip that is actually in the recording, optional key overlay, and fade in/out on the saved file.
 
 ![Live grab with a webcam pip](docs/preview.png)
 
@@ -18,7 +18,7 @@ Alt+Print still uses stock screenrecord until you wire the three snippets in `co
 
 1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc` so the recording rows call this plugin’s `record.sh`.
 2. **Hyprland layers** — append `config/hyprland.lua` to `~/.config/hypr/hyprland.lua`.
-3. **Bindings** — append `config/bindings.lua` to `~/.config/hypr/bindings.lua` (unbinds stock Alt+Print and Super+Alt `[` / `]` first).
+3. **Bindings** — append `config/bindings.lua` to `~/.config/hypr/bindings.lua` (unbinds stock Alt+Print and Super+Alt `[` / `]` first, and installs the Show keys hook).
 
 Then:
 
@@ -31,12 +31,14 @@ omarchy restart shell
 
 1. **Alt+Print** → **With desktop + microphone audio + webcam**
 2. Drag a region (click a size guide or pull the edges)
-3. Set fade, border, and corner radius, then click **Rectangle**, **Square**, **Circle**, or **Oval** to continue (Esc from the next step returns here)
+3. Set fade, **Show keys**, border, and corner radius, then click **Rectangle**, **Square**, **Circle**, or **Oval** to continue (Esc from the next step returns here)
 4. Drag the pip; grab the handles to crop the camera inside the shape (oval also rotates from the top knob). If more than one camera is plugged in, pick it from the menu under the preview. Super+Alt `[` / `]` resizes the pip. **Esc** to go back
 5. **Enter** for 3–2–1, then record
 6. **Alt+Print** again to stop (waits for the final render, then toasts)
 
 Without webcam, the same picker still wraps the other screenrecord menu rows.
+
+**Show keys** draws Super/Ctrl/Alt chords at the bottom of the grab (and in the recording). Bare typing stays hidden. It needs the bindings.lua hook above so keys still show after 3–2–1, when the overlay no longer has keyboard focus.
 
 ![1080p snap guides](docs/picker-guides.png)
 

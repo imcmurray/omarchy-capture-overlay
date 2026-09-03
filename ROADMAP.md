@@ -86,6 +86,8 @@ Off skips straight to record. 5 is the same surface with a longer timer.
   menu under the live pip switches devices and remembers the last one.
 - **Corner radius.** Done in 1.7.0: slider on the shape panel for rectangle
   and square; circle and oval stay fully round.
+- **Show keys.** Done in 1.8.0: optional HUD at the bottom of the grab for
+  Super/Ctrl/Alt chords; Hyprland hook is idle unless the overlay arms it.
 - **Countdown beep.** Easy and polarizing; optional, default off.
 
 ## Do not do

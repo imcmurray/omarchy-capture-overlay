@@ -353,3 +353,25 @@ function borderWidthLabel(key) {
   if (k === "thick") return "Thick"
   return "Medium"
 }
+
+function isModifierKeyName(name) {
+  var k = String(name || "")
+  return k === "Super" || k === "Ctrl" || k === "Alt" || k === "Shift" || k === "Caps"
+}
+
+function formatKeyChord(superOn, ctrlOn, altOn, shiftOn, keyName) {
+  var k = String(keyName || "")
+  if (!k || isModifierKeyName(k))
+    return ""
+  var parts = []
+  if (superOn) parts.push("Super")
+  if (ctrlOn) parts.push("Ctrl")
+  if (altOn) parts.push("Alt")
+  var special = k.length > 1
+  if (shiftOn && (parts.length > 0 || special))
+    parts.push("Shift")
+  if (parts.length === 0 && !special)
+    return ""
+  parts.push(k)
+  return parts.join(" + ")
+}

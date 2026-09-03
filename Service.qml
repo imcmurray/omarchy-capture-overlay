@@ -46,6 +46,8 @@ Item {
   property string webcamShape: "rectangle"
   property bool fadeIn: false
   property bool fadeOut: false
+  property bool showKeys: false
+  property string keyHudText: ""
   property string pipBorderColorKey: "accent"
   property string pipBorderWidthKey: "medium"
   property real pipCornerFrac: 0
@@ -106,6 +108,10 @@ Item {
   readonly property string pipPrefsPath: {
     var home = Quickshell.env("HOME") || ""
     return home ? home + "/.config/omarchy/ianm.capture-overlay.json" : ""
+  }
+  readonly property string keyHudPath: {
+    var dir = Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
+    return dir + "/omarchy-capture-keys"
   }
   readonly property bool pickUiLocked: root.pickPhase === "shape" || root.pickPhase === "place" || root.pickPhase === "countdown"
 
@@ -335,6 +341,8 @@ Item {
         root.cameraName = String(parsed.cameraName)
       if (parsed && parsed.cornerFrac !== undefined && parsed.cornerFrac !== null)
         root.pipCornerFrac = Picker.sanitizeCornerFrac(parsed.cornerFrac)
+      if (parsed && parsed.showKeys === true)
+        root.showKeys = true
     } catch (e) {
     }
     root.pipPrefsLoaded = true
@@ -347,6 +355,7 @@ Item {
       borderColor: root.pipBorderColorKey,
       borderWidth: root.pipBorderWidthKey,
       cornerFrac: root.pipCornerFrac,
+      showKeys: root.showKeys,
       cameraId: root.cameraId,
       cameraName: root.cameraName
     }) + "\n")
@@ -384,6 +393,78 @@ Item {
       }
     }
     return root.cameraName || "Camera"
+  }
+
+  function qtKeyName(key) {
+    if (key >= Qt.Key_A && key <= Qt.Key_Z)
+      return String.fromCharCode(65 + (key - Qt.Key_A))
+    if (key >= Qt.Key_0 && key <= Qt.Key_9)
+      return String.fromCharCode(48 + (key - Qt.Key_0))
+    if (key >= Qt.Key_F1 && key <= Qt.Key_F12)
+      return "F" + (key - Qt.Key_F1 + 1)
+    if (key === Qt.Key_Escape) return "Esc"
+    if (key === Qt.Key_Return || key === Qt.Key_Enter) return "Enter"
+    if (key === Qt.Key_Space) return "Space"
+    if (key === Qt.Key_Tab) return "Tab"
+    if (key === Qt.Key_Backspace) return "Backspace"
+    if (key === Qt.Key_Delete) return "Delete"
+    if (key === Qt.Key_Insert) return "Insert"
+    if (key === Qt.Key_Home) return "Home"
+    if (key === Qt.Key_End) return "End"
+    if (key === Qt.Key_PageUp) return "PgUp"
+    if (key === Qt.Key_PageDown) return "PgDn"
+    if (key === Qt.Key_Left) return "Left"
+    if (key === Qt.Key_Right) return "Right"
+    if (key === Qt.Key_Up) return "Up"
+    if (key === Qt.Key_Down) return "Down"
+    if (key === Qt.Key_BracketLeft) return "["
+    if (key === Qt.Key_BracketRight) return "]"
+    if (key === Qt.Key_Print) return "Print"
+    if (key === Qt.Key_SysReq) return "Print"
+    if (key === Qt.Key_Minus) return "-"
+    if (key === Qt.Key_Equal) return "="
+    if (key === Qt.Key_Comma) return ","
+    if (key === Qt.Key_Period) return "."
+    if (key === Qt.Key_Slash) return "/"
+    if (key === Qt.Key_Backslash) return "\\"
+    if (key === Qt.Key_Semicolon) return ";"
+    if (key === Qt.Key_Apostrophe) return "'"
+    if (key === Qt.Key_QuoteLeft) return "`"
+    if (key === Qt.Key_Meta || key === Qt.Key_Super_L || key === Qt.Key_Super_R) return "Super"
+    if (key === Qt.Key_Control) return "Ctrl"
+    if (key === Qt.Key_Alt) return "Alt"
+    if (key === Qt.Key_Shift) return "Shift"
+    if (key === Qt.Key_CapsLock) return "Caps"
+    return ""
+  }
+
+  function noteKey(label) {
+    var s = String(label || "").replace(/\n/g, "").trim()
+    if (!s || !root.showKeys)
+      return
+    root.keyHudText = s
+    keyHudTimer.restart()
+  }
+
+  function noteKeyFromEvent(event) {
+    if (!root.showKeys || !event)
+      return
+    var label = Picker.formatKeyChord(
+      (event.modifiers & Qt.MetaModifier) !== 0,
+      (event.modifiers & Qt.ControlModifier) !== 0,
+      (event.modifiers & Qt.AltModifier) !== 0,
+      (event.modifiers & Qt.ShiftModifier) !== 0,
+      root.qtKeyName(event.key)
+    )
+    root.noteKey(label)
+  }
+
+  function syncKeyListen() {
+    var on = root.showKeys && (root.picking || root.recording)
+    if (on)
+      Quickshell.execDetached(["bash", "-c", "printf 1 > \"$XDG_RUNTIME_DIR/omarchy-capture-keys.on\""])
+    else
+      Quickshell.execDetached(["rm", "-f", (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-capture-keys.on"])
   }
 
   function confirmRegion() {
@@ -719,6 +800,7 @@ Item {
     }
     root.picking = false
     root.pickPhase = "idle"
+    root.keyHudText = ""
     root.ghosts = []
     if (ok) {
       root.forced = true
@@ -856,6 +938,7 @@ Item {
   }
 
   function handleKeys(event) {
+    root.noteKeyFromEvent(event)
     if (event.key === Qt.Key_Escape) {
       if (root.cameraMenuOpen)
         root.cameraMenuOpen = false
@@ -945,13 +1028,26 @@ Item {
       && root.regionY + root.regionH > screen.y
   }
 
-  Component.onCompleted: refresh()
+  onShowKeysChanged: root.syncKeyListen()
+  onPickingChanged: root.syncKeyListen()
+  onRecordingChanged: root.syncKeyListen()
+  Component.onCompleted: {
+    root.syncKeyListen()
+    root.refresh()
+  }
 
   Timer {
     interval: 400
     running: true
     repeat: true
     onTriggered: root.refresh()
+  }
+
+  Timer {
+    id: keyHudTimer
+    interval: 1400
+    repeat: false
+    onTriggered: root.keyHudText = ""
   }
 
   Timer {
@@ -988,6 +1084,14 @@ Item {
   }
 
   FileView {
+    path: root.keyHudPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.noteKey(text())
+  }
+
+  FileView {
     path: Color.currentThemePath + "/colors.toml"
     watchChanges: true
     printErrors: false
@@ -1016,6 +1120,7 @@ Item {
       return root.confirmRegion()
     }
     function resizeCam(action: string): string { return root.resizeCam(action) }
+    function key(label: string): string { root.noteKey(label); return "ok" }
     function state(): string {
       return JSON.stringify({
         recording: root.recording,
@@ -1035,6 +1140,37 @@ Item {
 
   component FrameRect: Rectangle {
     color: root.frameColor
+  }
+
+  component KeyHud: Item {
+    required property int sx
+    required property int sy
+    visible: root.showKeys && root.keyHudText !== "" && root.hasRegion && (root.recording || root.picking)
+    z: 90
+    width: hudBox.width
+    height: hudBox.height
+    x: root.regionX - sx + Math.max(Style.space(8), Math.round((root.regionW - width) / 2))
+    y: root.regionY - sy + root.regionH - height - Style.space(16)
+
+    BorderSurface {
+      id: hudBox
+      color: Util.alpha(Color.background, 0.92)
+      borderSpec: Border.surfaceSpec("popups", "border", Color.accent, Math.max(1, Style.space(2)))
+      radius: Style.cornerRadius
+      width: hudLabel.implicitWidth + Style.space(28)
+      height: Math.max(Style.space(36), hudLabel.implicitHeight + Style.space(14))
+
+      Text {
+        id: hudLabel
+        anchors.centerIn: parent
+        text: root.keyHudText
+        textFormat: Text.PlainText
+        color: Color.accent
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+        font.bold: true
+      }
+    }
   }
 
   component CaptureFrame: Item {
@@ -1699,6 +1835,11 @@ Item {
         showHandles: false
       }
 
+      KeyHud {
+        sx: live.sx
+        sy: live.sy
+      }
+
       BorderSurface {
         x: live.chipX
         y: live.chipY
@@ -1879,6 +2020,12 @@ Item {
         showHandles: root.pickPhase === "adjust" || root.pickPhase === "resize" || root.pickPhase === "move"
       }
 
+      KeyHud {
+        visible: picker.onPickScreen && root.showKeys && root.keyHudText !== "" && root.hasRegion
+        sx: picker.sx
+        sy: picker.sy
+      }
+
       Item {
         visible: root.pickPhase === "countdown" && picker.onPickScreen && root.hasRegion && !root.camPreviewActive
         x: picker.localX
@@ -1974,6 +2121,16 @@ Item {
             label: "Fade out"
             checked: root.fadeOut
             onToggled: root.fadeOut = !root.fadeOut
+          }
+          FadeCheck {
+            label: "Show keys"
+            checked: root.showKeys
+            onToggled: {
+              root.showKeys = !root.showKeys
+              if (!root.showKeys)
+                root.keyHudText = ""
+              root.savePipPrefs()
+            }
           }
         }
 
