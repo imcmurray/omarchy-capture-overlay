@@ -1,10 +1,30 @@
 # Omarchy capture overlay
 
-Replace slurp with a live grab: 1080p snap guides, a webcam pip that is actually in the recording, optional key overlay, and fade in/out on the saved file.
+A live capture overlay for Omarchy screen recordings. Pick a region with 1080p snap guides, drop a webcam pip that is actually in the file, crop and zoom the camera inside the shape, show key chords, and fade the saved clip in or out.
 
-![Live grab with a webcam pip](docs/preview.png)
+![Webcam pip on the grab, with crop handles](docs/preview.png)
 
-The pip can be a rectangle, square, circle, or oval. Rectangle and square take a corner radius. Border color comes from the theme. Fade in/out is ffmpeg post on the final file, not on the live preview.
+Stock screenrecord stays stock. This plugin adds **With overlay + desktop + microphone audio**.
+
+## What it adds
+
+**Snap to 1080p.** Drag a region or click a size guide. 1080p, 720p, and 900p sit on the grab so the recording is the size you meant.
+
+![1080p snap guides on the live grab](docs/picker-guides.png)
+
+**Options on the grab.** Fade in, fade out, **Show keys**, pip border, and corner radius, then rectangle, square, circle, or oval. Esc from the next step comes back here.
+
+![Shape and options panel](docs/shape-panel.png)
+
+**A pip that records.** The live camera is what gpu-screen-recorder captures. Drag it to a corner. Super+Alt `[` / `]` resizes the frame. Oval rotates from the top knob.
+
+**Crop and zoom the camera.** Pull the handles to focus the shot inside the shape. The pip stays the same size; the video zooms. Esc goes back.
+
+![Crop handles zooming the camera inside the oval](docs/pip-zoom.png)
+
+**Show keys** draws Super/Ctrl/Alt chords at the bottom of the grab (and in the recording). Bare typing stays hidden.
+
+Fade in/out is ffmpeg on the saved file, not on the live preview. Border color comes from the theme.
 
 ## Install
 
@@ -30,21 +50,15 @@ omarchy restart shell
 ## Use
 
 1. **Alt+Print** → **With overlay + desktop + microphone audio**
-2. Drag a region (click a size guide or pull the edges)
-3. Set fade, **Show keys**, border, and corner radius, then click **Rectangle**, **Square**, **Circle**, or **Oval** to continue (Esc from the next step returns here)
-4. Drag the pip; grab the handles to crop the camera inside the shape (oval also rotates from the top knob). If more than one camera is plugged in, pick it from the menu under the preview. Super+Alt `[` / `]` resizes the pip. **Esc** to go back
+2. Drag a region, or click a 1080p / 720p / 900p guide
+3. Set fade, **Show keys**, border, and corner radius, then click a shape (Esc from the next step returns here)
+4. Drag the pip. Pull the handles to crop and zoom the camera inside the shape (oval also rotates from the top knob). If more than one camera is plugged in, pick it from the menu under the preview. Super+Alt `[` / `]` resizes the pip. **Esc** to go back
 5. **Enter** for 3–2–1, then record
 6. **Alt+Print** again to stop (waits for the final render, then toasts)
 
 Stock **With desktop + microphone audio + webcam** is still the Omarchy pip.
 
-**Show keys** draws Super/Ctrl/Alt chords at the bottom of the grab (and in the recording). Bare typing stays hidden. It needs the bindings.lua hook above so keys still show after 3–2–1, when the overlay no longer has keyboard focus.
-
-![1080p snap guides](docs/picker-guides.png)
-
-![Shape panel](docs/shape-panel.png)
-
-![Place the pip](docs/pip-place.png)
+**Show keys** needs the bindings.lua hook above so chords still show after 3–2–1, when the overlay no longer has keyboard focus.
 
 ## Update
 

@@ -1,1 +1,2 @@
-`pip-person.jpg` / `pip-person.mp4` are a cropped still (and a short zoom of it) from [Unsplash](https://unsplash.com/photos/1544005313-94ddf0286df2), used as a stand-in for the webcam pip in the README shots.
+`pip-person.jpg` is a generated indoor webcam stand-in for the README shots.
+The overlay chrome in those shots is cropped from the live plugin.
