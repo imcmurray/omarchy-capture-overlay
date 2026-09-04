@@ -40,8 +40,7 @@ Item {
   property string snappedLabel: ""
   property string hoverHandle: ""
   property string hoverGhost: ""
-  property string selectionFile: ""
-  property string doneFile: ""
+  property string pickSession: ""
   property bool askWebcamShape: false
   property string webcamShape: "rectangle"
   property bool fadeIn: false
@@ -255,6 +254,13 @@ Item {
     return "ok"
   }
 
+  function newPickSession() {
+    var s = ""
+    while (s.length < 16)
+      s += Math.floor(Math.random() * 0x7fffffff).toString(16)
+    return s.substring(0, 16)
+  }
+
   function startPick(payloadJson) {
     var parsed = ({})
     try {
@@ -262,10 +268,9 @@ Item {
     } catch (e) {
       parsed = ({})
     }
-    if (root.picking && root.doneFile && root.doneFile !== String(parsed.doneFile || ""))
+    if (root.picking)
       root.finishPick(false)
-    root.selectionFile = String(parsed.selectionFile || "")
-    root.doneFile = String(parsed.doneFile || "")
+    root.pickSession = root.newPickSession()
     root.askWebcamShape = parsed.askWebcamShape === true || parsed.askWebcamShape === "true"
     root.webcamShape = "rectangle"
     root.resetCamView()
@@ -291,7 +296,7 @@ Item {
       root.pickSW = Math.round(focused.width / (focused.scale || 1))
       root.pickSH = Math.round(focused.height / (focused.scale || 1))
     }
-    return "ok"
+    return JSON.stringify({ session: root.pickSession })
   }
 
   function pipBorderColorFor(key) {
@@ -790,13 +795,12 @@ Item {
     var shape = (ok && root.askWebcamShape) ? root.webcamShape : ""
     if (!ok)
       root.stopWebcamPreview()
-    if (root.selectionFile && root.doneFile) {
+    if (root.pickSession) {
       Quickshell.execDetached([
         root.pluginDir + "/bin/finish-pick",
+        root.pickSession,
         geo,
-        root.selectionFile,
         status,
-        root.doneFile,
         shape,
         root.fadeIn ? "1" : "0",
         root.fadeOut ? "1" : "0"

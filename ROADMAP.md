@@ -14,7 +14,7 @@ panel after the region is confirmed** — not a pile of separate knobs.
 4. **Everything else:** confirm jumps straight to 3–2–1. No fades, no options.
 
 Fades are ffmpeg post on the saved file (`bin/compose-cam`). They are **not**
-applied to the live pip. Flags live in `$XDG_RUNTIME_DIR/omarchy-cam-mix.env`
+applied to the live pip. Flags live in `$XDG_RUNTIME_DIR/ianm-capture-overlay/recipe`
 (`FADE_IN`, `FADE_OUT`, `FADE_SEC`, default 2.5s). `compose-cam` no-ops if
 that recipe is missing, so non-webcam recordings cannot fade today.
 `start-cam` is what writes the recipe, and it only runs on the webcam path.

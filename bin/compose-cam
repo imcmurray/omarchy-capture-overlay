@@ -61,4 +61,4 @@ if [[ $fade_in == 1 || $fade_out == 1 ]]; then
   fi
 fi
 
-rm -f "$RECIPE"
+"$RUNTIME_IO" remove-recipe || true

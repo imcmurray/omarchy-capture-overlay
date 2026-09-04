@@ -2,17 +2,43 @@
 # Shared paths and geometry for the capture-overlay camera.
 # Sourced by other scripts; not launched directly.
 
-RUNTIME="${XDG_RUNTIME_DIR:-/tmp}"
-RECIPE="$RUNTIME/omarchy-cam-mix.env"
+_CAM_LIB_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+RUNTIME_IO="$_CAM_LIB_DIR/runtime-io"
+RUNTIME="${XDG_RUNTIME_DIR:?}/ianm-capture-overlay"
+RECIPE="$RUNTIME/recipe"
 
 cam_load() {
-  [[ -f $RECIPE ]] || return 1
-  # shellcheck disable=SC1090
-  source "$RECIPE"
+  local parsed
+  parsed=$("$RUNTIME_IO" load-recipe) || return 1
+  SHAPE=rectangle
+  REGION_X=0 REGION_Y=0 REGION_W=0 REGION_H=0
+  CAM_X=0 CAM_Y=0 CAM_W=0 CAM_H=0 CAM_ROT=0
+  REL_X=0 REL_Y=0
+  FADE_IN=0 FADE_OUT=0 FADE_SEC=2.5
+  while IFS= read -r line; do
+    [[ -n $line ]] || continue
+    case $line in
+    SHAPE=*) SHAPE=${line#SHAPE=} ;;
+    REGION_X=*) REGION_X=${line#REGION_X=} ;;
+    REGION_Y=*) REGION_Y=${line#REGION_Y=} ;;
+    REGION_W=*) REGION_W=${line#REGION_W=} ;;
+    REGION_H=*) REGION_H=${line#REGION_H=} ;;
+    CAM_X=*) CAM_X=${line#CAM_X=} ;;
+    CAM_Y=*) CAM_Y=${line#CAM_Y=} ;;
+    CAM_W=*) CAM_W=${line#CAM_W=} ;;
+    CAM_H=*) CAM_H=${line#CAM_H=} ;;
+    CAM_ROT=*) CAM_ROT=${line#CAM_ROT=} ;;
+    REL_X=*) REL_X=${line#REL_X=} ;;
+    REL_Y=*) REL_Y=${line#REL_Y=} ;;
+    FADE_IN=*) FADE_IN=${line#FADE_IN=} ;;
+    FADE_OUT=*) FADE_OUT=${line#FADE_OUT=} ;;
+    FADE_SEC=*) FADE_SEC=${line#FADE_SEC=} ;;
+    esac
+  done <<<"$parsed"
 }
 
 cam_save() {
-  cat >"$RECIPE" <<EOF
+  "$RUNTIME_IO" save-recipe <<EOF
 SHAPE=${SHAPE:-rectangle}
 REGION_X=${REGION_X:-0}
 REGION_Y=${REGION_Y:-0}

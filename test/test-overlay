@@ -12,7 +12,7 @@ bad() { echo "FAIL  $*"; fail=$((fail + 1)); }
 info() { echo "INFO  $*"; }
 
 # Unit tests first — they do not need the shell.
-if ! "$PLUGIN_DIR/bin/test-core"; then
+if ! "$PLUGIN_DIR/test/test-core"; then
   echo
   echo "=== core tests failed; skipping live overlay checks ==="
   exit 1
@@ -164,7 +164,7 @@ omarchy menu close >/dev/null 2>&1 || true
 sleep 0.15
 
 # 7. Menu must still map when a picker is already up (the click-stealing case)
-payload=$(python3 -c 'import json,tempfile; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
+payload=$(python3 -c 'import json; print(json.dumps({"askWebcamShape": True}))')
 omarchy-shell capture-overlay pick "$payload" >/dev/null || true
 sleep 0.15
 omarchy menu summon trigger.capture.screenrecord >/dev/null 2>&1 || true
@@ -182,7 +182,7 @@ omarchy menu close >/dev/null 2>&1 || true
 sleep 0.2
 
 # 8. Overlay pick starts, then cancel (does not leave it up)
-payload=$(python3 -c 'import json,tempfile; s=tempfile.mkstemp()[1]; d=tempfile.mkstemp()[1]; open(s,"w").close(); open(d,"w").close(); print(json.dumps({"selectionFile":s,"doneFile":d,"askWebcamShape":True}))')
+payload=$(python3 -c 'import json; print(json.dumps({"askWebcamShape": True}))')
 if omarchy-shell capture-overlay pick "$payload" >/dev/null; then
   st=$(omarchy-shell capture-overlay state)
   echo "$st" | grep -q '"picking":true' && ok "pick IPC starts picker" || bad "pick IPC ok but picking not true: $st"

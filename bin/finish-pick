@@ -1,18 +1,20 @@
 #!/bin/bash
 # On success: persist region and fade flags. On cancel: drop the recipe.
+# Writes the pick result only to a service-owned session file.
 set -euo pipefail
 
 PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
 source "$PLUGIN_DIR/bin/cam-lib"
 
-geo=${1:-}
-sel=${2:-}
+session=${1:-}
+geo=${2:-}
 status=${3:-cancel}
-done=${4:-}
-shape=${5:-}
-fade_in=${6:-0}
-fade_out=${7:-0}
+shape=${4:-}
+fade_in=${5:-0}
+fade_out=${6:-0}
+
+[[ $session =~ ^[0-9a-f]{16,32}$ ]] || exit 2
 
 if [[ $status == ok ]]; then
   if cam_load; then
@@ -32,11 +34,7 @@ if [[ $status == ok ]]; then
   fi
 else
   "$PLUGIN_DIR/bin/stop-cam"
-  rm -f "$RECIPE"
+  "$RUNTIME_IO" remove-recipe || true
 fi
 
-printf '%s\n' "$geo" >"$sel"
-if [[ -n $shape ]]; then
-  printf '%s\n' "$shape" >>"$sel"
-fi
-printf '%s\n' "$status" >"$done"
+"$RUNTIME_IO" write-pick "$session" "$status" "$geo" "$shape"

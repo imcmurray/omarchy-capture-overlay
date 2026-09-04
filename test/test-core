@@ -71,6 +71,15 @@ for stock in (
     assert stock not in m, stock
 PY
 
+if grep -q 'function newPickSession' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'pickSession' "$PLUGIN_DIR/Service.qml" \
+  && ! grep -q 'parsed.selectionFile' "$PLUGIN_DIR/Service.qml" \
+  && ! grep -q 'parsed.doneFile' "$PLUGIN_DIR/Service.qml"; then
+  ok "pick IPC does not take caller file paths"
+else
+  bad "pick IPC still accepts caller selectionFile/doneFile"
+fi
+
 if grep -q 'property bool pickerScrim' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'pickPhase === "shape" || root.cameraMenuOpen' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'property real scrimAmount' "$PLUGIN_DIR/Service.qml" \
@@ -241,10 +250,28 @@ else
   bad "recipe round-trip SHAPE=$SHAPE FADE_IN=$FADE_IN CAM_W=$CAM_W"
 fi
 
+if printf 'SHAPE=$(touch /tmp/ianm-pwned)\nFADE_IN=1\n' >"$RECIPE" \
+  && ! cam_load 2>/dev/null; then
+  ok "cam_load rejects shell syntax in the recipe"
+else
+  bad "cam_load accepted a recipe with shell metacharacters"
+fi
+rm -f /tmp/ianm-pwned
+
+python3 - "$RECIPE" <<'PY'
+import os, sys
+os.remove(sys.argv[1])
+os.symlink("/etc/passwd", sys.argv[1])
+PY
+if cam_load 2>/dev/null; then
+  bad "cam_load followed a recipe symlink"
+else
+  ok "cam_load refuses a recipe symlink"
+fi
+
 # --- start-cam / cam-update ---
 "$PLUGIN_DIR/bin/start-cam" rectangle "640x360+40+80" 1 1
-# shellcheck disable=SC1090
-source "$RECIPE"
+cam_load || { bad "cam_load failed after start-cam"; }
 if [[ $REGION_X == 40 && $REGION_Y == 80 && $REGION_W == 640 && $REGION_H == 360 && $FADE_IN == 1 && $FADE_OUT == 1 && $CAM_X == 40 ]]; then
   ok "start-cam writes grab, pip, and fade flags"
 else
@@ -252,8 +279,7 @@ else
 fi
 
 "$PLUGIN_DIR/bin/cam-update" 50 90 200 120
-# shellcheck disable=SC1090
-source "$RECIPE"
+cam_load || { bad "cam_load failed after cam-update"; }
 if [[ $CAM_X == 50 && $CAM_Y == 90 && $CAM_W == 200 && $CAM_H == 120 && $REL_X == 10 && $REL_Y == 10 ]]; then
   ok "cam-update persists dragged pip geometry"
 else
@@ -261,22 +287,29 @@ else
 fi
 
 # --- finish-pick ---
-sel=$work/sel
-donef=$work/done
-"$PLUGIN_DIR/bin/finish-pick" "40,80 640x360" "$sel" ok "$donef" rectangle 1 0
-# shellcheck disable=SC1090
-source "$RECIPE"
+session=0123456789abcdef
+if "$PLUGIN_DIR/bin/finish-pick" "../etc" "40,80 640x360" ok rectangle 1 0 2>/tmp/ianm-pick-evil.err; then
+  bad "finish-pick accepted a path-like session"
+else
+  ok "finish-pick rejects a path-like session"
+fi
+
+"$PLUGIN_DIR/bin/finish-pick" "$session" "40,80 640x360" ok rectangle 1 0
+cam_load || { bad "cam_load failed after finish-pick"; }
+donef="$RUNTIME/p-${session}.done"
+sel="$RUNTIME/p-${session}.sel"
 if [[ $FADE_IN == 1 && $FADE_OUT == 0 && $(<"$donef") == ok && $(sed -n '1p' "$sel") == "40,80 640x360" ]]; then
   ok "finish-pick ok writes geo, shape, and fade flags"
 else
   bad "finish-pick ok FADE=$FADE_IN/$FADE_OUT done=$(<"$donef") sel=$(cat "$sel")"
 fi
 
-"$PLUGIN_DIR/bin/finish-pick" "" "$sel" cancel "$donef" "" 0 0
-if [[ ! -f $RECIPE && $(<"$donef") == cancel ]]; then
+session2=fedcba9876543210
+"$PLUGIN_DIR/bin/finish-pick" "$session2" "" cancel "" 0 0
+if [[ ! -f $RECIPE && $(<"$RUNTIME/p-${session2}.done") == cancel ]]; then
   ok "finish-pick cancel drops the recipe"
 else
-  bad "finish-pick cancel left RECIPE=$([[ -f $RECIPE ]] && echo yes || echo no) done=$(<"$donef")"
+  bad "finish-pick cancel left RECIPE=$([[ -f $RECIPE ]] && echo yes || echo no)"
 fi
 
 # --- compose-cam fades ---

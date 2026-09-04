@@ -24,7 +24,7 @@ Fades are ffmpeg on the saved file. Border color comes from the theme.
 omarchy plugin add https://github.com/imcmurray/omarchy-capture-overlay.git --enable
 ```
 
-That loads the service. It does **not** rewrite your menu or Hyprland config. Alt+Print still uses stock screenrecord until you wire the three snippets in `config/`:
+That loads the service. It does **not** rewrite your menu or Hyprland config. The extra Screenrecord row and fade-on-stop path still need the three snippets in `config/` — without them Alt+Print stays on stock screenrecord:
 
 1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc`
 2. **Hyprland layers** — append `config/hyprland.lua` to `~/.config/hypr/hyprland.lua`
@@ -74,7 +74,7 @@ Recordings in your Videos folder are left alone.
 
 ## Permissions
 
-Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/omarchy-capture-keys.on`; bare typing stays hidden.
+Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/omarchy-capture-keys.on`; bare typing stays hidden. Pick results and the fade recipe stay under `$XDG_RUNTIME_DIR/ianm-capture-overlay/` as parsed data, not shell.
 
 ## License
 
