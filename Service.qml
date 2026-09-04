@@ -90,6 +90,10 @@ Item {
   readonly property color frameColor: Color.accent
   readonly property color contrastColor: Color.background
   readonly property color dimColor: Util.alpha(Color.background, 0.32)
+  readonly property bool pickerScrim: root.pickPhase === "shape" || root.cameraMenuOpen
+  property real scrimAmount: root.pickerScrim ? 1 : 0
+  Behavior on scrimAmount { NumberAnimation { duration: 240; easing.type: Easing.InOutCubic } }
+  readonly property color scrimColor: Util.alpha(Color.background, 0.32 + root.scrimAmount * 0.18)
   readonly property color pipBorderColor: root.pipBorderColorFor(root.pipBorderColorKey)
   readonly property int pipBorderPx: root.pipBorderPxFor(root.pipBorderWidthKey)
   readonly property int pipBorderPreview: root.pipBorderPx > 0 ? Math.max(2, Math.min(5, root.pipBorderPx)) : 0
@@ -1766,7 +1770,7 @@ Item {
       color: "transparent"
       anchors { top: true; bottom: true; left: true; right: true }
       exclusionMode: ExclusionMode.Ignore
-      WlrLayershell.namespace: "ianm-capture-overlay"
+      WlrLayershell.namespace: "ianm-capture-live"
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
       // While dragging, freeze input to the full overlay. A pip-sized mask
@@ -1801,29 +1805,29 @@ Item {
         z: 50
       }
 
-      Canvas {
-        id: liveDim
-        anchors.fill: parent
-        onPaint: {
-          var ctx = getContext("2d")
-          ctx.clearRect(0, 0, width, height)
-          ctx.globalCompositeOperation = "source-over"
-          ctx.fillStyle = root.dimColor
-          ctx.fillRect(0, 0, width, height)
-          ctx.globalCompositeOperation = "destination-out"
-          ctx.fillRect(live.holeX, live.holeY, live.holeW, live.holeH)
-        }
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        Connections {
-          target: root
-          function onRegionXChanged() { liveDim.requestPaint() }
-          function onRegionYChanged() { liveDim.requestPaint() }
-          function onRegionWChanged() { liveDim.requestPaint() }
-          function onRegionHChanged() { liveDim.requestPaint() }
-          function onPickingChanged() { liveDim.requestPaint() }
-        }
-        Component.onCompleted: requestPaint()
+      Rectangle { x: 0; y: 0; width: live.width; height: live.holeY; color: root.dimColor }
+      Rectangle {
+        x: 0
+        y: live.holeY + live.holeH
+        width: live.width
+        height: Math.max(0, live.height - live.holeY - live.holeH)
+        color: root.dimColor
+      }
+      Rectangle {
+        visible: live.holeX > 0 && live.holeH > 0
+        x: 0
+        y: live.holeY
+        width: live.holeX
+        height: live.holeH
+        color: root.dimColor
+      }
+      Rectangle {
+        visible: live.holeH > 0
+        x: live.holeX + live.holeW
+        y: live.holeY
+        width: Math.max(0, live.width - live.holeX - live.holeW)
+        height: live.holeH
+        color: root.dimColor
       }
 
       CaptureFrame {
@@ -1864,7 +1868,7 @@ Item {
           }
           Text {
             text: root.askWebcamShape
-              ? "REC  " + root.sizeLabel + "  ·  drag camera  ·  Super+Alt+[ ]"
+              ? "REC  " + root.sizeLabel + "  ·  drag camera  ·  Super+Alt+[ ] size"
               : "REC  " + root.sizeLabel
             textFormat: Text.PlainText
             color: Color.popups.text
@@ -1954,14 +1958,14 @@ Item {
         onFocusChanged: if (picker.grabKeys && !focus) Qt.callLater(function() { if (picker.grabKeys) pickArea.forceActiveFocus() })
       }
 
-      Rectangle { x: 0; y: 0; width: picker.width; height: root.hasRegion && picker.onPickScreen ? picker.holeY : picker.height; color: root.dimColor }
+      Rectangle { x: 0; y: 0; width: picker.width; height: root.hasRegion && picker.onPickScreen ? picker.holeY : picker.height; color: root.scrimColor }
       Rectangle {
         visible: root.hasRegion && picker.onPickScreen
         x: 0
         y: picker.holeY + picker.holeH
         width: picker.width
         height: Math.max(0, picker.height - picker.holeY - picker.holeH)
-        color: root.dimColor
+        color: root.scrimColor
       }
       Rectangle {
         visible: root.hasRegion && picker.onPickScreen && picker.holeX > 0 && picker.holeH > 0
@@ -1969,7 +1973,7 @@ Item {
         y: picker.holeY
         width: picker.holeX
         height: picker.holeH
-        color: root.dimColor
+        color: root.scrimColor
       }
       Rectangle {
         visible: root.hasRegion && picker.onPickScreen && picker.holeH > 0
@@ -1977,7 +1981,16 @@ Item {
         y: picker.holeY
         width: Math.max(0, picker.width - picker.holeX - picker.holeW)
         height: picker.holeH
-        color: root.dimColor
+        color: root.scrimColor
+      }
+      Rectangle {
+        visible: root.hasRegion && picker.onPickScreen
+        x: picker.holeX
+        y: picker.holeY
+        width: picker.holeW
+        height: picker.holeH
+        color: Util.alpha(Color.background, 0.5)
+        opacity: root.scrimAmount
       }
 
       Repeater {
@@ -2084,12 +2097,12 @@ Item {
               if (root.pickPhase === "countdown")
                 return "Recording starts in " + root.countdownValue + " · Esc to cancel"
               if (root.pickPhase === "place")
-                return "Drag · crop · camera · oval rotates · Enter · Esc to go back"
+                return "Drag · crop · camera · Super+Alt+[ ] size · oval rotates · Enter · Esc to go back"
               if (root.pickPhase === "shape")
                 return "Click a shape to continue · Esc to cancel"
               if (root.hasRegion)
-                return root.sizeLabel + "   Enter to record · drag edges or click a size guide"
-              return "Drag a region · snap guides are 1080p / 720p / 900p · Esc to cancel"
+                return root.sizeLabel + "   Enter · arrows move · drag edges or click a size guide"
+              return "Drag a region · snap guides 1080p / 720p / 900p · arrows move · Esc"
             }
             textFormat: Text.PlainText
             color: Color.popups.text

@@ -64,6 +64,26 @@ for stock in (
     assert stock not in m, stock
 PY
 
+if grep -q 'property bool pickerScrim' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'pickPhase === "shape" || root.cameraMenuOpen' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'property real scrimAmount' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'Behavior on scrimAmount' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'opacity: root.scrimAmount' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'ianm-capture-live' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'live.holeX + live.holeW' "$PLUGIN_DIR/Service.qml" \
+  && ! grep -q 'id: liveDim' "$PLUGIN_DIR/Service.qml"; then
+  ok "picker scrim tweens in and out; live dim leaves the grab clear"
+else
+  bad "picker scrim tween or live overlay namespace is missing"
+fi
+
+if grep -q 'blur = true' "$PLUGIN_DIR/config/hyprland.lua" \
+  && grep -q 'ignore_alpha' "$PLUGIN_DIR/config/hyprland.lua"; then
+  ok "hyprland snippet blurs the overlay dim"
+else
+  bad "hyprland snippet is missing overlay blur"
+fi
+
 if grep -q 'property bool camDragging' "$PLUGIN_DIR/Service.qml" \
   && grep -n 'mask:' "$PLUGIN_DIR/Service.qml" | grep -q camDragging \
   && grep -q 'onCanceled: root.finishCamDrag' "$PLUGIN_DIR/Service.qml"; then

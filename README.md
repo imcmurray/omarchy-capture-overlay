@@ -12,7 +12,11 @@ Pull the handles to focus the shot inside the shape. The pip stays put; the vide
 
 ![Camera zoomed inside the same oval](docs/pip-zoom.png)
 
-On the grab you also get fade in/out, **Show keys** (Super/Ctrl/Alt chords; bare typing stays hidden), pip border, and corner radius, then rectangle, square, circle, or oval. Fades are ffmpeg on the saved file. Border color comes from the theme.
+On the grab you also get fade in/out, **Show keys** (Super/Ctrl/Alt chords; bare typing stays hidden), pip border, and corner radius, then rectangle, square, circle, or oval.
+
+![Options on the grab](docs/shape-panel.png)
+
+Fades are ffmpeg on the saved file. Border color comes from the theme.
 
 ## Install
 
@@ -36,7 +40,7 @@ The marketplace card uses the same root `preview.png` as the hero above.
 ## Use
 
 1. **Alt+Print** → **With overlay + desktop + microphone audio**
-2. Drag a region, or click a 1080p / 720p / 900p guide
+2. Drag a region, or click a 1080p / 720p / 900p guide. Arrow keys nudge it.
 3. Set fade, **Show keys**, border, and corners, then click a shape
 4. Drag the pip. Pull the handles to crop and zoom. Esc goes back
 5. **Enter** for 3–2–1, then record
