@@ -26,6 +26,13 @@ else
   ok "no sidecar/mpv symbols in plugin sources"
 fi
 
+if grep -R -n --include='*.qml' --include='*.js' --include='*.sh' --include='*.lua' --exclude='test-*' -E 'systemctl|sudo|pkexec' "$PLUGIN_DIR" >/tmp/ianm-priv-grep.txt 2>/dev/null; then
+  bad "privilege or service-management strings:"
+  cat /tmp/ianm-priv-grep.txt
+else
+  ok "no sudo, pkexec, or systemctl in plugin sources"
+fi
+
 if grep -R -n --include='*.qml' --include='*.sh' 'WebcamOverlay' "$PLUGIN_DIR" >/dev/null; then
   bad "plugin still mentions stock WebcamOverlay"
 else

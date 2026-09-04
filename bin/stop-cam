@@ -1,6 +1,5 @@
 #!/bin/bash
-# Best-effort cleanup. The live preview is torn down by unloading CamPreview.qml;
-# this only clears leftover units from older plugin versions.
-set -euo pipefail
-systemctl --user stop ianm-cam.service ianm-cam-sidecar.service 2>/dev/null || true
-systemctl --user reset-failed ianm-cam.service ianm-cam-sidecar.service 2>/dev/null || true
+# Best-effort leftover cleanup. The live preview is torn down by unloading
+# CamPreview.qml. Older plugin versions left user systemd camera units; those
+# units are gone, so this is a no-op kept for callers that still invoke it.
+exit 0

@@ -24,11 +24,13 @@ Fades are ffmpeg on the saved file. Border color comes from the theme.
 omarchy plugin add https://github.com/imcmurray/omarchy-capture-overlay.git --enable
 ```
 
-Alt+Print still uses stock screenrecord until you wire the three snippets in `config/`:
+That loads the service. It does **not** rewrite your menu or Hyprland config. Alt+Print still uses stock screenrecord until you wire the three snippets in `config/`:
 
 1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc`
 2. **Hyprland layers** — append `config/hyprland.lua` to `~/.config/hypr/hyprland.lua`
 3. **Bindings** — append `config/bindings.lua` to `~/.config/hypr/bindings.lua` (unbinds stock Alt+Print and Super+Alt `[` / `]` first, and installs the Show keys hook)
+
+The Hyprland snippet turns on `decoration.blur` (Omarchy looknfeel leaves it off) so the shape and camera pickers can frost the rest of the screen. It also adds layer rules for the picker, the live overlay, and the countdown.
 
 ```bash
 hyprctl reload
@@ -36,6 +38,10 @@ omarchy restart shell
 ```
 
 The marketplace card uses the same root `preview.png` as the hero above.
+
+## Requirements
+
+Omarchy Quattro with a webcam (`omarchy-hw-webcam`). Capture uses stock `gpu-screen-recorder` / `omarchy-capture-screenrecording`. Fades and the save toast use `ffmpeg`. Layer rules and the optional Show keys hook use Hyprland. No extra packages. No sudo or pkexec is required.
 
 ## Use
 
@@ -58,8 +64,18 @@ omarchy plugin update ianm.capture-overlay
 omarchy plugin remove ianm.capture-overlay
 ```
 
-Then delete the three `config/` snippets if you want Alt+Print back on stock screenrecord, and `hyprctl reload`.
+Then delete the three `config/` snippets if you want Alt+Print back on stock screenrecord, and `hyprctl reload`. Optional settings leftover:
+
+```bash
+rm -f ~/.config/omarchy/ianm.capture-overlay.json
+```
+
+Recordings in your Videos folder are left alone.
+
+## Permissions
+
+Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/omarchy-capture-keys.on`; bare typing stays hidden.
 
 ## License
 
-MIT
+MIT. README shots use a generated indoor webcam stand-in, not a live camera. See `docs/CREDITS.md`.
