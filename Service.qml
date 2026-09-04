@@ -113,8 +113,8 @@ Item {
     return home ? home + "/.config/omarchy/ianm.capture-overlay.json" : ""
   }
   readonly property string keyHudPath: {
-    var dir = Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
-    return dir + "/omarchy-capture-keys"
+    var dir = Quickshell.env("XDG_RUNTIME_DIR") || ""
+    return dir ? dir + "/ianm-capture-overlay/keys" : ""
   }
   readonly property bool pickUiLocked: root.pickPhase === "shape" || root.pickPhase === "place" || root.pickPhase === "countdown"
 
@@ -468,12 +468,26 @@ Item {
     root.noteKey(label)
   }
 
+  function runtimeIo(args) {
+    var xdg = Quickshell.env("XDG_RUNTIME_DIR") || ""
+    var home = Quickshell.env("HOME") || ""
+    var cmd = [
+      "/usr/bin/env", "-i",
+      "PATH=/usr/bin:/bin",
+      "LC_ALL=C",
+      "HOME=" + home,
+      "XDG_RUNTIME_DIR=" + xdg,
+      "/usr/bin/python3",
+      root.pluginDir + "/bin/runtime-io"
+    ]
+    for (var i = 0; i < args.length; i++)
+      cmd.push(args[i])
+    return cmd
+  }
+
   function syncKeyListen() {
     var on = root.showKeys && (root.picking || root.recording)
-    if (on)
-      Quickshell.execDetached(["bash", "-c", "printf 1 > \"$XDG_RUNTIME_DIR/omarchy-capture-keys.on\""])
-    else
-      Quickshell.execDetached(["rm", "-f", (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-capture-keys.on"])
+    Quickshell.execDetached(root.runtimeIo([on ? "set-flag" : "clear-flag", "keys.on"]))
   }
 
   function confirmRegion() {
@@ -1024,7 +1038,7 @@ Item {
 
   function refresh() {
     if (statusProc.running) return
-    statusProc.command = ["bash", root.statusScript]
+    statusProc.command = ["/usr/bin/bash", root.statusScript]
     statusProc.running = true
   }
 
@@ -1070,15 +1084,6 @@ Item {
         root.finishPick(true)
       }
     }
-  }
-
-  FileView {
-    path: "/tmp/omarchy-screenrecord-filename"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.refresh()
-    onLoaded: root.refresh()
-    onLoadFailed: root.refresh()
   }
 
   FileView {

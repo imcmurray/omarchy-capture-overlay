@@ -12,7 +12,7 @@ for arg in "$@"; do
   esac
 done
 
-payload=$(python3 -c 'import json,sys; print(json.dumps({"askWebcamShape": sys.argv[1]=="1"}))' "$([[ $ask_shape == true ]] && echo 1 || echo 0)")
+payload=$(/usr/bin/python3 -c 'import json,sys; print(json.dumps({"askWebcamShape": sys.argv[1]=="1"}))' "$([[ $ask_shape == true ]] && echo 1 || echo 0)")
 
 # The menu holds an exclusive keyboard grab. Wait for it to unmap before
 # this overlay asks for the same grab, or the picker never takes input.
@@ -21,7 +21,7 @@ ok=false
 session=""
 for _ in 1 2 3 4 5 6 7 8; do
   out=$(omarchy-shell capture-overlay pick "$payload" 2>/dev/null) || out=""
-  session=$(python3 -c 'import json,sys,re
+  session=$(/usr/bin/python3 -c 'import json,sys,re
 t=sys.stdin.read().strip()
 try:
     s=json.loads(t).get("session","")
@@ -41,21 +41,26 @@ if ! $ok; then
   exit 1
 fi
 
-sel="$RUNTIME/p-${session}.sel"
-donef="$RUNTIME/p-${session}.done"
-
 for _ in $(seq 1 12000); do
-  if [[ -s $donef ]]; then
-    status=$(<"$donef")
-    [[ $status == ok ]] || exit 1
-    geo=$(sed -n '1p' "$sel")
-    shape=$(sed -n '2p' "$sel")
-    [[ -n $geo ]] || exit 1
-    printf '%s\n' "$geo"
-    [[ -n $shape ]] && printf '%s\n' "$shape"
-    exit 0
+  rc=0
+  result=$(runtime_io read-pick "$session" 2>/dev/null) || rc=$?
+  if ((rc == 3)); then
+    sleep 0.05
+    continue
   fi
-  sleep 0.05
+  if ((rc != 0)); then
+    echo "capture overlay picker result was invalid" >&2
+    exit 1
+  fi
+  mapfile -t pick_lines <<<"$result"
+  status=${pick_lines[0]:-}
+  [[ $status == ok ]] || exit 1
+  geo=${pick_lines[1]:-}
+  shape=${pick_lines[2]:-}
+  [[ -n $geo ]] || exit 1
+  printf '%s\n' "$geo"
+  [[ -n $shape ]] && printf '%s\n' "$shape"
+  exit 0
 done
 
 omarchy-shell capture-overlay cancel >/dev/null 2>&1 || true

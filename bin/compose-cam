@@ -61,4 +61,4 @@ if [[ $fade_in == 1 || $fade_out == 1 ]]; then
   fi
 fi
 
-"$RUNTIME_IO" remove-recipe || true
+runtime_io remove-recipe || true

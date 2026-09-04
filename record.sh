@@ -2,6 +2,8 @@
 set -euo pipefail
 
 PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck disable=SC1091
+source "$PLUGIN_DIR/bin/cam-lib"
 REAL="${OMARCHY_PATH:-/usr/share/omarchy}/bin/omarchy-capture-screenrecording"
 
 stop=false
@@ -25,9 +27,7 @@ if $stop || $recording; then
     exit 1
   fi
 
-  rec_file=/tmp/omarchy-screenrecord-filename
-  filename=""
-  [[ -f $rec_file ]] && filename=$(cat "$rec_file" 2>/dev/null || true)
+  filename=$(runtime_io read-stock-filename 2>/dev/null || true)
 
   pkill -SIGINT -f '^gpu-screen-recorder( |$)' 2>/dev/null || true
   count=0
@@ -42,7 +42,7 @@ if $stop || $recording; then
   if [[ -z $filename || ! -f $filename ]]; then
     filename=$(ls -t "${OMARCHY_SCREENRECORD_DIR:-$HOME/Videos}"/screenrecording-*.mp4 2>/dev/null | head -1 || true)
   fi
-  rm -f "$rec_file"
+  runtime_io clear-stock-filename || true
 
   if [[ -n $filename && -f $filename ]]; then
     "$PLUGIN_DIR/bin/compose-cam" "$filename" || true

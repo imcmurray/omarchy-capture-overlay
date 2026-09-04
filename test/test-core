@@ -73,6 +73,7 @@ PY
 
 if grep -q 'function newPickSession' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'pickSession' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'function runtimeIo' "$PLUGIN_DIR/Service.qml" \
   && ! grep -q 'parsed.selectionFile' "$PLUGIN_DIR/Service.qml" \
   && ! grep -q 'parsed.doneFile' "$PLUGIN_DIR/Service.qml"; then
   ok "pick IPC does not take caller file paths"
@@ -183,7 +184,7 @@ if grep -q 'label: "Show keys"' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'component KeyHud' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'function noteKey' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'input.keyboard.key' "$PLUGIN_DIR/config/bindings.lua" \
-  && grep -q 'omarchy-capture-keys' "$PLUGIN_DIR/config/bindings.lua" \
+  && grep -q 'ianm-capture-overlay/keys' "$PLUGIN_DIR/config/bindings.lua" \
   && grep -q 'pcall' "$PLUGIN_DIR/config/bindings.lua"; then
   ok "show-keys HUD is an option on the shape panel"
 else
@@ -296,20 +297,68 @@ fi
 
 "$PLUGIN_DIR/bin/finish-pick" "$session" "40,80 640x360" ok rectangle 1 0
 cam_load || { bad "cam_load failed after finish-pick"; }
-donef="$RUNTIME/p-${session}.done"
-sel="$RUNTIME/p-${session}.sel"
-if [[ $FADE_IN == 1 && $FADE_OUT == 0 && $(<"$donef") == ok && $(sed -n '1p' "$sel") == "40,80 640x360" ]]; then
+pick_out=$(runtime_io read-pick "$session") || { bad "read-pick failed after finish-pick ok"; pick_out=""; }
+if [[ $FADE_IN == 1 && $FADE_OUT == 0 && $pick_out == $'ok\n40,80 640x360\nrectangle' ]]; then
   ok "finish-pick ok writes geo, shape, and fade flags"
 else
-  bad "finish-pick ok FADE=$FADE_IN/$FADE_OUT done=$(<"$donef") sel=$(cat "$sel")"
+  bad "finish-pick ok FADE=$FADE_IN/$FADE_OUT pick=$(printf %q "$pick_out")"
+fi
+if runtime_io read-pick "$session" 2>/dev/null; then
+  bad "read-pick did not consume the session files"
+else
+  ok "read-pick removes session files after consumption"
 fi
 
 session2=fedcba9876543210
 "$PLUGIN_DIR/bin/finish-pick" "$session2" "" cancel "" 0 0
-if [[ ! -f $RECIPE && $(<"$RUNTIME/p-${session2}.done") == cancel ]]; then
+pick_out=$(runtime_io read-pick "$session2") || { bad "read-pick failed after cancel"; pick_out=""; }
+if [[ ! -f $RECIPE && $pick_out == cancel ]]; then
   ok "finish-pick cancel drops the recipe"
 else
-  bad "finish-pick cancel left RECIPE=$([[ -f $RECIPE ]] && echo yes || echo no)"
+  bad "finish-pick cancel left RECIPE=$([[ -f $RECIPE ]] && echo yes || echo no) pick=$(printf %q "$pick_out")"
+fi
+
+rc=0
+runtime_io read-pick 0123456789abcdef 2>/dev/null || rc=$?
+if [[ $rc == 3 ]]; then
+  ok "read-pick exits 3 when the session is missing"
+else
+  bad "read-pick missing exit $rc (want 3)"
+fi
+
+ln -sf /etc/passwd "$RUNTIME/p-aaaaaaaaaaaaaaaa.done"
+if runtime_io read-pick aaaaaaaaaaaaaaaa 2>/dev/null; then
+  bad "read-pick followed a done symlink"
+else
+  ok "read-pick refuses a done symlink"
+fi
+
+runtime_io set-flag keys.on
+if [[ -f $RUNTIME/keys.on && ! -L $RUNTIME/keys.on && $(<"$RUNTIME/keys.on") == 1 ]]; then
+  ok "set-flag writes keys.on as a regular file"
+else
+  bad "set-flag did not write keys.on"
+fi
+runtime_io clear-flag keys.on
+if [[ ! -e $RUNTIME/keys.on ]]; then
+  ok "clear-flag removes keys.on"
+else
+  bad "clear-flag left keys.on"
+fi
+
+if grep -n 'bash", "-c"' "$PLUGIN_DIR/Service.qml" \
+  || grep -n '/tmp/omarchy-screenrecord-filename' "$PLUGIN_DIR/Service.qml" "$PLUGIN_DIR/record.sh" \
+  || grep -n 'omarchy-capture-keys.on' "$PLUGIN_DIR/Service.qml"; then
+  bad "Service.qml or record.sh still uses bash -c or /tmp filename paths"
+else
+  ok "keys marker and stock filename go through runtime-io"
+fi
+
+if grep -n 'p-\${session}' "$PLUGIN_DIR/pick.sh" \
+  || grep -n 'donef=' "$PLUGIN_DIR/pick.sh"; then
+  bad "pick.sh still reads session files by pathname"
+else
+  ok "pick.sh consumes results through read-pick"
 fi
 
 # --- compose-cam fades ---

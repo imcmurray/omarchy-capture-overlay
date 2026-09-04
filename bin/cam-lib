@@ -7,9 +7,18 @@ RUNTIME_IO="$_CAM_LIB_DIR/runtime-io"
 RUNTIME="${XDG_RUNTIME_DIR:?}/ianm-capture-overlay"
 RECIPE="$RUNTIME/recipe"
 
+runtime_io() {
+  /usr/bin/env -i \
+    PATH=/usr/bin:/bin \
+    LC_ALL=C \
+    HOME="${HOME:-}" \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:?}" \
+    /usr/bin/python3 "$RUNTIME_IO" "$@"
+}
+
 cam_load() {
   local parsed
-  parsed=$("$RUNTIME_IO" load-recipe) || return 1
+  parsed=$(runtime_io load-recipe) || return 1
   SHAPE=rectangle
   REGION_X=0 REGION_Y=0 REGION_W=0 REGION_H=0
   CAM_X=0 CAM_Y=0 CAM_W=0 CAM_H=0 CAM_ROT=0
@@ -38,7 +47,7 @@ cam_load() {
 }
 
 cam_save() {
-  "$RUNTIME_IO" save-recipe <<EOF
+  runtime_io save-recipe <<EOF
 SHAPE=${SHAPE:-rectangle}
 REGION_X=${REGION_X:-0}
 REGION_Y=${REGION_Y:-0}

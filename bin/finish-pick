@@ -34,7 +34,7 @@ if [[ $status == ok ]]; then
   fi
 else
   "$PLUGIN_DIR/bin/stop-cam"
-  "$RUNTIME_IO" remove-recipe || true
+  runtime_io remove-recipe || true
 fi
 
-"$RUNTIME_IO" write-pick "$session" "$status" "$geo" "$shape"
+runtime_io write-pick "$session" "$status" "$geo" "$shape"

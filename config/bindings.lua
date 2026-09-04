@@ -13,9 +13,10 @@ o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "$HOME/.config/oma
 -- while picking or recording). The whole handler is pcall'd so a bad event
 -- shape cannot pop Hyprland's Lua error overlay while you type.
 do
-  local dir = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
-  local path = dir .. "/omarchy-capture-keys"
-  local onpath = path .. ".on"
+  local dir = os.getenv("XDG_RUNTIME_DIR")
+  if dir then
+  local path = dir .. "/ianm-capture-overlay/keys"
+  local onpath = dir .. "/ianm-capture-overlay/keys.on"
   local linux = {
     [1] = "Esc", [14] = "Backspace", [15] = "Tab", [28] = "Enter", [57] = "Space",
     [12] = "-", [13] = "=", [26] = "[", [27] = "]", [39] = ";", [40] = "'",
@@ -117,4 +118,5 @@ do
   _G.ianm_capture_keys_sub = hl.on("input.keyboard.key", function(...)
     pcall(handle, ...)
   end)
+  end
 end
