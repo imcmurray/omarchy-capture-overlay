@@ -39,12 +39,13 @@ if $stop || $recording; then
   omarchy-shell -q omarchy.indicators refresh 2>/dev/null || true
   sleep 0.4
 
-  if [[ -z $filename || ! -f $filename ]]; then
-    filename=$(ls -t "${OMARCHY_SCREENRECORD_DIR:-$HOME/Videos}"/screenrecording-*.mp4 2>/dev/null | head -1 || true)
+  if [[ -z $filename ]]; then
+    cand=$(ls -t "${OMARCHY_SCREENRECORD_DIR:-$HOME/Videos}"/screenrecording-*.mp4 2>/dev/null | head -1 || true)
+    filename=$(runtime_io verify-recording "${cand:-}" 2>/dev/null || true)
   fi
   runtime_io clear-stock-filename || true
 
-  if [[ -n $filename && -f $filename ]]; then
+  if [[ -n $filename ]]; then
     "$PLUGIN_DIR/bin/compose-cam" "$filename" || true
     preview="${filename%.mp4}-preview.png"
     ffmpeg -y -ss 3 -i "$filename" -frames:v 1 -q:v 2 "$preview" -loglevel quiet 2>/dev/null || true

@@ -183,8 +183,9 @@ PY
 if grep -q 'label: "Show keys"' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'component KeyHud' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'function noteKey' "$PLUGIN_DIR/Service.qml" \
+  && grep -q 'read-keys' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'input.keyboard.key' "$PLUGIN_DIR/config/bindings.lua" \
-  && grep -q 'ianm-capture-overlay/keys' "$PLUGIN_DIR/config/bindings.lua" \
+  && grep -q 'write-keys' "$PLUGIN_DIR/config/bindings.lua" \
   && grep -q 'pcall' "$PLUGIN_DIR/config/bindings.lua"; then
   ok "show-keys HUD is an option on the shape panel"
 else
@@ -346,10 +347,26 @@ else
   bad "clear-flag left keys.on"
 fi
 
+runtime_io write-keys "Super + C"
+keys_out=$(runtime_io read-keys) || keys_out=""
+if [[ $keys_out == "Super + C" ]]; then
+  ok "write-keys/read-keys round-trip"
+else
+  bad "keys round-trip got $(printf %q "$keys_out")"
+fi
+if runtime_io write-keys '$(id)' 2>/dev/null; then
+  bad "write-keys accepted shell metacharacters"
+else
+  ok "write-keys rejects shell metacharacters"
+fi
+
 if grep -n 'bash", "-c"' "$PLUGIN_DIR/Service.qml" \
   || grep -n '/tmp/omarchy-screenrecord-filename' "$PLUGIN_DIR/Service.qml" "$PLUGIN_DIR/record.sh" \
-  || grep -n 'omarchy-capture-keys.on' "$PLUGIN_DIR/Service.qml"; then
-  bad "Service.qml or record.sh still uses bash -c or /tmp filename paths"
+  || grep -n 'omarchy-capture-keys.on' "$PLUGIN_DIR/Service.qml" \
+  || grep -n 'path: root.keyHudPath' "$PLUGIN_DIR/Service.qml" \
+  || grep -n 'io.open(path, "w")' "$PLUGIN_DIR/config/bindings.lua" \
+  || grep -n '/tmp}/omarchy-cam-compose.log' "$PLUGIN_DIR/bin/compose-cam"; then
+  bad "persistent key/filename I/O still bypasses runtime-io"
 else
   ok "keys marker and stock filename go through runtime-io"
 fi

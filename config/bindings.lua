@@ -15,7 +15,8 @@ o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "$HOME/.config/oma
 do
   local dir = os.getenv("XDG_RUNTIME_DIR")
   if dir then
-  local path = dir .. "/ianm-capture-overlay/keys"
+  local home = os.getenv("HOME") or ""
+  local helper = home .. "/.config/omarchy/plugins/ianm.capture-overlay/bin/runtime-io"
   local onpath = dir .. "/ianm-capture-overlay/keys.on"
   local linux = {
     [1] = "Esc", [14] = "Backspace", [15] = "Tab", [28] = "Enter", [57] = "Space",
@@ -104,11 +105,14 @@ do
       return
     end
     parts[#parts + 1] = name
-    local f = io.open(path, "w")
-    if f then
-      f:write(table.concat(parts, " + "))
-      f:close()
+    local msg = table.concat(parts, " + ")
+    if not msg:match("^[A-Za-z0-9 +]+$") then
+      return
     end
+    os.execute(string.format(
+      "/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C HOME=%q XDG_RUNTIME_DIR=%q /usr/bin/python3 %q write-keys %q",
+      home, dir, helper, msg
+    ))
   end
   if _G.ianm_capture_keys_sub and _G.ianm_capture_keys_sub.remove then
     pcall(function()

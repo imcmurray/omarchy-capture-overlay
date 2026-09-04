@@ -5,8 +5,7 @@ PLUGIN_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC1091
 source "$PLUGIN_DIR/bin/cam-lib"
 
-screen=${1:-}
-[[ -n $screen && -f $screen ]] || exit 0
+screen=$(runtime_io verify-recording "${1:-}" 2>/dev/null) || exit 0
 cam_load || exit 0
 
 notify() {
@@ -18,7 +17,7 @@ fade_in=${FADE_IN:-0}
 fade_out=${FADE_OUT:-0}
 fade_sec=${FADE_SEC:-2.5}
 work=$screen
-log="${XDG_RUNTIME_DIR:-/tmp}/omarchy-cam-compose.log"
+log="$RUNTIME/compose.log"
 {
   echo "$(date '+%F %T') file=$work fade_in=$fade_in fade_out=$fade_out fade_sec=$fade_sec"
 } >>"$log"

@@ -11,16 +11,19 @@ import sys
 DIR_NAME = "ianm-capture-overlay"
 RECIPE_NAME = "recipe"
 KEYS_FLAG = "keys.on"
+KEYS_NAME = "keys"
 STOCK_DIR = "/tmp"
 STOCK_NAME = "omarchy-screenrecord-filename"
 MAX_RECIPE = 4096
 MAX_PICK = 256
 MAX_POINTER = 4096
+MAX_KEYS = 64
 SESSION_RE = re.compile(r"^[0-9a-f]{16,32}$")
 PICK_STATUS = {"ok", "cancel"}
 SHAPE = {"", "rectangle", "square", "circle", "oval"}
 GEO_RE = re.compile(r"^-?\d+,-?\d+ \d+x\d+$")
 VIDEO_RE = re.compile(r"^/[A-Za-z0-9._/+-]+\.mp4$")
+KEYS_RE = re.compile(r"^[A-Za-z0-9 +]+$")
 OPEN_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
 
@@ -249,6 +252,35 @@ def clear_flag(dir_fd: int, name: str) -> None:
     unlink_file(dir_fd, name)
 
 
+def write_keys(dir_fd: int, text: str) -> None:
+    if not KEYS_RE.fullmatch(text) or len(text) > MAX_KEYS:
+        fail("invalid key chord")
+    atomic_write(dir_fd, KEYS_NAME, (text + "\n").encode())
+
+
+def read_keys(dir_fd: int) -> None:
+    raw = read_named(dir_fd, KEYS_NAME, MAX_KEYS).decode("ascii", "strict").strip()
+    if not KEYS_RE.fullmatch(raw):
+        fail("invalid key chord")
+    sys.stdout.write(raw + "\n")
+
+
+def verify_recording(path: str) -> None:
+    if not path or "\n" in path or ".." in path.split("/"):
+        fail("invalid recording path")
+    if not VIDEO_RE.fullmatch(path):
+        fail("invalid recording path")
+    try:
+        vfd = os.open(path, OPEN_READ)
+    except OSError as e:
+        fail(str(e))
+    try:
+        owned_regular(vfd, 1 << 40)
+    finally:
+        os.close(vfd)
+    sys.stdout.write(path + "\n")
+
+
 def open_stock_dir() -> int:
     try:
         return os.open(STOCK_DIR, OPEN_DIR)
@@ -274,17 +306,7 @@ def read_stock_filename() -> None:
         os.close(dir_fd)
     if not raw or "\n" in raw or ".." in raw.split("/"):
         fail("invalid recording pointer")
-    if not VIDEO_RE.fullmatch(raw):
-        fail("invalid recording pointer")
-    try:
-        vfd = os.open(raw, OPEN_READ)
-    except OSError as e:
-        fail(str(e))
-    try:
-        owned_regular(vfd, 1 << 40)
-    finally:
-        os.close(vfd)
-    sys.stdout.write(raw + "\n")
+    verify_recording(raw)
 
 
 def clear_stock_filename() -> None:
@@ -304,6 +326,11 @@ def main(argv: list[str]) -> None:
         return
     if cmd == "clear-stock-filename":
         clear_stock_filename()
+        return
+    if cmd == "verify-recording":
+        if len(argv) < 3:
+            fail("usage: runtime-io verify-recording PATH")
+        verify_recording(argv[2])
         return
     dir_fd = open_runtime_dir()
     try:
@@ -329,6 +356,12 @@ def main(argv: list[str]) -> None:
             if len(argv) < 3:
                 fail("usage: runtime-io clear-flag NAME")
             clear_flag(dir_fd, argv[2])
+        elif cmd == "write-keys":
+            if len(argv) < 3:
+                fail("usage: runtime-io write-keys TEXT")
+            write_keys(dir_fd, argv[2])
+        elif cmd == "read-keys":
+            read_keys(dir_fd)
         else:
             fail(f"unknown command {cmd}")
     finally:

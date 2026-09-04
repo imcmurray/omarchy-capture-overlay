@@ -112,10 +112,6 @@ Item {
     var home = Quickshell.env("HOME") || ""
     return home ? home + "/.config/omarchy/ianm.capture-overlay.json" : ""
   }
-  readonly property string keyHudPath: {
-    var dir = Quickshell.env("XDG_RUNTIME_DIR") || ""
-    return dir ? dir + "/ianm-capture-overlay/keys" : ""
-  }
   readonly property bool pickUiLocked: root.pickPhase === "shape" || root.pickPhase === "place" || root.pickPhase === "countdown"
 
   readonly property var currentRect: ({ x: regionX, y: regionY, w: regionW, h: regionH })
@@ -1086,6 +1082,26 @@ Item {
     }
   }
 
+  Process {
+    id: keysProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.noteKey(text)
+    }
+  }
+
+  Timer {
+    interval: 80
+    running: root.showKeys && (root.picking || root.recording)
+    repeat: true
+    onTriggered: {
+      if (keysProc.running)
+        return
+      keysProc.command = root.runtimeIo(["read-keys"])
+      keysProc.running = true
+    }
+  }
+
   FileView {
     id: pipPrefsFile
     path: root.pipPrefsPath
@@ -1094,14 +1110,6 @@ Item {
     printErrors: false
     onLoaded: root.loadPipPrefs(text())
     onLoadFailed: root.loadPipPrefs("")
-  }
-
-  FileView {
-    path: root.keyHudPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: root.noteKey(text())
   }
 
   FileView {
