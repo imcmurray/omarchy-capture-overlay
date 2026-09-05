@@ -17,7 +17,6 @@ do
   if dir then
   local home = os.getenv("HOME") or ""
   local helper = home .. "/.config/omarchy/plugins/ianm.capture-overlay/bin/runtime-io"
-  local onpath = dir .. "/ianm-capture-overlay/keys.on"
   local linux = {
     [1] = "Esc", [14] = "Backspace", [15] = "Tab", [28] = "Enter", [57] = "Space",
     [12] = "-", [13] = "=", [26] = "[", [27] = "]", [39] = ";", [40] = "'",
@@ -40,6 +39,25 @@ do
   local alt = { [56] = true, [100] = true }
   local shift = { [42] = true, [54] = true }
   local held = {}
+  local armed = false
+  local armed_at = 0
+  local function helper_ok(args)
+    local cmd = string.format(
+      "/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C HOME=%q XDG_RUNTIME_DIR=%q /usr/bin/python3 %q %s",
+      home, dir, helper, args
+    )
+    local r = os.execute(cmd)
+    return r == true or r == 0
+  end
+  local function is_armed()
+    local now = os.time()
+    if now == armed_at then
+      return armed
+    end
+    armed_at = now
+    armed = helper_ok("has-flag keys.on")
+    return armed
+  end
   local function linux_code(code)
     if type(code) ~= "number" then
       return nil
@@ -61,11 +79,6 @@ do
     return nil, nil
   end
   local function handle(a, b, c)
-    local armed = io.open(onpath, "r")
-    if not armed then
-      return
-    end
-    armed:close()
     local code, state = parse(a, b, c)
     if not code then
       return
@@ -109,10 +122,10 @@ do
     if not msg:match("^[A-Za-z0-9 +]+$") then
       return
     end
-    os.execute(string.format(
-      "/usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C HOME=%q XDG_RUNTIME_DIR=%q /usr/bin/python3 %q write-keys %q",
-      home, dir, helper, msg
-    ))
+    if not is_armed() then
+      return
+    end
+    helper_ok(string.format("write-keys %q", msg))
   end
   if _G.ianm_capture_keys_sub and _G.ianm_capture_keys_sub.remove then
     pcall(function()

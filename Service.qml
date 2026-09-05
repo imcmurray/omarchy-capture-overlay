@@ -252,9 +252,9 @@ Item {
 
   function newPickSession() {
     var s = ""
-    while (s.length < 16)
+    while (s.length < 32)
       s += Math.floor(Math.random() * 0x7fffffff).toString(16)
-    return s.substring(0, 16)
+    return s.substring(0, 32)
   }
 
   function startPick(payloadJson) {
@@ -464,7 +464,7 @@ Item {
     root.noteKey(label)
   }
 
-  function runtimeIo(args) {
+  function trustedEnv(argv) {
     var xdg = Quickshell.env("XDG_RUNTIME_DIR") || ""
     var home = Quickshell.env("HOME") || ""
     var cmd = [
@@ -472,10 +472,30 @@ Item {
       "PATH=/usr/bin:/bin",
       "LC_ALL=C",
       "HOME=" + home,
-      "XDG_RUNTIME_DIR=" + xdg,
-      "/usr/bin/python3",
-      root.pluginDir + "/bin/runtime-io"
+      "XDG_RUNTIME_DIR=" + xdg
     ]
+    for (var i = 0; i < argv.length; i++)
+      cmd.push(argv[i])
+    return cmd
+  }
+
+  function runtimeIo(args) {
+    var cmd = root.trustedEnv(["/usr/bin/python3", root.pluginDir + "/bin/runtime-io"])
+    for (var i = 0; i < args.length; i++)
+      cmd.push(args[i])
+    return cmd
+  }
+
+  function pluginBash(script, args) {
+    var allowed = {
+      "cam-update": true,
+      "start-cam": true,
+      "stop-cam": true,
+      "finish-pick": true
+    }
+    if (!allowed[script])
+      return []
+    var cmd = root.trustedEnv(["/usr/bin/bash", root.pluginDir + "/bin/" + script])
     for (var i = 0; i < args.length; i++)
       cmd.push(args[i])
     return cmd
@@ -594,11 +614,10 @@ Item {
   }
 
   function persistCam() {
-    Quickshell.execDetached([
-      root.pluginDir + "/bin/cam-update",
+    Quickshell.execDetached(root.pluginBash("cam-update", [
       String(root.camX), String(root.camY), String(root.camW), String(root.camH),
       String(Math.round(root.camRot))
-    ])
+    ]))
   }
 
   function cropCamFrom(handle, w0, h0, dx, dy, l0, t0, r0, b0) {
@@ -753,13 +772,12 @@ Item {
       root.camH = p.h
       Qt.callLater(function() { root.camAnimating = true })
       var region = root.regionW + "x" + root.regionH + "+" + root.regionX + "+" + root.regionY
-      Quickshell.execDetached([
-        root.pluginDir + "/bin/start-cam",
+      Quickshell.execDetached(root.pluginBash("start-cam", [
         root.webcamShape,
         region,
         root.fadeIn ? "1" : "0",
         root.fadeOut ? "1" : "0"
-      ])
+      ]))
       root.camPreviewActive = true
     } else {
       var next = root.grabPlacement()
@@ -779,7 +797,7 @@ Item {
     root.camResizing = false
     root.cameraMenuOpen = false
     root.camPreviewActive = false
-    Quickshell.execDetached([root.pluginDir + "/bin/stop-cam"])
+    Quickshell.execDetached(root.pluginBash("stop-cam", []))
   }
 
   function startCountdown() {
@@ -806,15 +824,14 @@ Item {
     if (!ok)
       root.stopWebcamPreview()
     if (root.pickSession) {
-      Quickshell.execDetached([
-        root.pluginDir + "/bin/finish-pick",
+      Quickshell.execDetached(root.pluginBash("finish-pick", [
         root.pickSession,
         geo,
         status,
         shape,
         root.fadeIn ? "1" : "0",
         root.fadeOut ? "1" : "0"
-      ])
+      ]))
     }
     root.picking = false
     root.pickPhase = "idle"
@@ -1034,7 +1051,7 @@ Item {
 
   function refresh() {
     if (statusProc.running) return
-    statusProc.command = ["/usr/bin/bash", root.statusScript]
+    statusProc.command = root.trustedEnv(["/usr/bin/bash", root.statusScript])
     statusProc.running = true
   }
 

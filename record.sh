@@ -47,11 +47,14 @@ if $stop || $recording; then
 
   if [[ -n $filename ]]; then
     "$PLUGIN_DIR/bin/compose-cam" "$filename" || true
-    preview="${filename%.mp4}-preview.png"
-    ffmpeg -y -ss 3 -i "$filename" -frames:v 1 -q:v 2 "$preview" -loglevel quiet 2>/dev/null || true
+    preview=""
+    if ffmpeg -hide_banner -loglevel quiet -y -ss 3 -i "$filename" -frames:v 1 -f image2pipe -vcodec png pipe:1 \
+      | runtime_io write-file preview.png; then
+      preview="$RUNTIME/preview.png"
+    fi
     omarchy-notification-send "Screen recording saved" "Final render is ready (click to play)" \
       -t 10000 --image "${preview:-$filename}" --exec mpv -- "$filename"
-    (sleep 2; rm -f "$preview") &
+    (sleep 2; runtime_io remove-file preview.png || true) &
     printf '%s\n' "$filename"
   else
     "$PLUGIN_DIR/bin/stop-cam" || true

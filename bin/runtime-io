@@ -18,12 +18,14 @@ MAX_RECIPE = 4096
 MAX_PICK = 256
 MAX_POINTER = 4096
 MAX_KEYS = 64
+MAX_PREVIEW = 2 * 1024 * 1024
 SESSION_RE = re.compile(r"^[0-9a-f]{16,32}$")
 PICK_STATUS = {"ok", "cancel"}
 SHAPE = {"", "rectangle", "square", "circle", "oval"}
 GEO_RE = re.compile(r"^-?\d+,-?\d+ \d+x\d+$")
 VIDEO_RE = re.compile(r"^/[A-Za-z0-9._/+-]+\.mp4$")
 KEYS_RE = re.compile(r"^[A-Za-z0-9 +]+$")
+WRITE_NAMES = {"preview.png"}
 OPEN_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
 
@@ -252,6 +254,21 @@ def clear_flag(dir_fd: int, name: str) -> None:
     unlink_file(dir_fd, name)
 
 
+def has_flag(dir_fd: int, name: str) -> None:
+    if name != KEYS_FLAG:
+        fail("invalid flag")
+    try:
+        fd = os.open(name, OPEN_READ, dir_fd=dir_fd)
+    except FileNotFoundError:
+        missing()
+    except OSError as e:
+        fail(str(e))
+    try:
+        owned_regular(fd, MAX_PICK)
+    finally:
+        os.close(fd)
+
+
 def write_keys(dir_fd: int, text: str) -> None:
     if not KEYS_RE.fullmatch(text) or len(text) > MAX_KEYS:
         fail("invalid key chord")
@@ -265,20 +282,93 @@ def read_keys(dir_fd: int) -> None:
     sys.stdout.write(raw + "\n")
 
 
-def verify_recording(path: str) -> None:
+def write_named(dir_fd: int, name: str) -> None:
+    if name not in WRITE_NAMES:
+        fail("invalid file name")
+    data = sys.stdin.buffer.read(MAX_PREVIEW + 1)
+    if len(data) > MAX_PREVIEW:
+        fail("file too large")
+    atomic_write(dir_fd, name, data)
+
+
+def remove_named(dir_fd: int, name: str) -> None:
+    if name not in WRITE_NAMES:
+        fail("invalid file name")
+    unlink_file(dir_fd, name)
+
+
+def split_video_path(path: str) -> tuple[str, str]:
     if not path or "\n" in path or ".." in path.split("/"):
         fail("invalid recording path")
     if not VIDEO_RE.fullmatch(path):
         fail("invalid recording path")
+    directory, name = os.path.split(path)
+    if not directory or not name:
+        fail("invalid recording path")
+    check_name(name)
+    return directory, name
+
+
+def open_parent_dir(directory: str) -> int:
     try:
-        vfd = os.open(path, OPEN_READ)
+        return os.open(directory, OPEN_DIR)
     except OSError as e:
         fail(str(e))
+
+
+def verify_recording(path: str) -> None:
+    directory, name = split_video_path(path)
+    dir_fd = open_parent_dir(directory)
     try:
-        owned_regular(vfd, 1 << 40)
+        try:
+            vfd = os.open(name, OPEN_READ, dir_fd=dir_fd)
+        except OSError as e:
+            fail(str(e))
+        try:
+            owned_regular(vfd, 1 << 40)
+        finally:
+            os.close(vfd)
     finally:
-        os.close(vfd)
+        os.close(dir_fd)
     sys.stdout.write(path + "\n")
+
+
+def replace_recording(src: str, dst: str) -> None:
+    src_dir, src_name = split_video_path(src)
+    dst_dir, dst_name = split_video_path(dst)
+    if src_dir != dst_dir:
+        fail("replace requires the same directory")
+    dir_fd = open_parent_dir(src_dir)
+    try:
+        try:
+            sfd = os.open(src_name, OPEN_READ, dir_fd=dir_fd)
+        except OSError as e:
+            fail(str(e))
+        try:
+            owned_regular(sfd, 1 << 40)
+        finally:
+            os.close(sfd)
+        try:
+            dfd = os.open(dst_name, OPEN_READ, dir_fd=dir_fd)
+        except OSError as e:
+            fail(str(e))
+        try:
+            owned_regular(dfd, 1 << 40)
+        finally:
+            os.close(dfd)
+        os.replace(src_name, dst_name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+    sys.stdout.write(dst + "\n")
+
+
+def unlink_recording(path: str) -> None:
+    directory, name = split_video_path(path)
+    dir_fd = open_parent_dir(directory)
+    try:
+        unlink_file(dir_fd, name)
+    finally:
+        os.close(dir_fd)
 
 
 def open_stock_dir() -> int:
@@ -332,6 +422,16 @@ def main(argv: list[str]) -> None:
             fail("usage: runtime-io verify-recording PATH")
         verify_recording(argv[2])
         return
+    if cmd == "replace-recording":
+        if len(argv) < 4:
+            fail("usage: runtime-io replace-recording SRC DST")
+        replace_recording(argv[2], argv[3])
+        return
+    if cmd == "unlink-recording":
+        if len(argv) < 3:
+            fail("usage: runtime-io unlink-recording PATH")
+        unlink_recording(argv[2])
+        return
     dir_fd = open_runtime_dir()
     try:
         if cmd == "load-recipe":
@@ -356,12 +456,24 @@ def main(argv: list[str]) -> None:
             if len(argv) < 3:
                 fail("usage: runtime-io clear-flag NAME")
             clear_flag(dir_fd, argv[2])
+        elif cmd == "has-flag":
+            if len(argv) < 3:
+                fail("usage: runtime-io has-flag NAME")
+            has_flag(dir_fd, argv[2])
         elif cmd == "write-keys":
             if len(argv) < 3:
                 fail("usage: runtime-io write-keys TEXT")
             write_keys(dir_fd, argv[2])
         elif cmd == "read-keys":
             read_keys(dir_fd)
+        elif cmd == "write-file":
+            if len(argv) < 3:
+                fail("usage: runtime-io write-file NAME")
+            write_named(dir_fd, argv[2])
+        elif cmd == "remove-file":
+            if len(argv) < 3:
+                fail("usage: runtime-io remove-file NAME")
+            remove_named(dir_fd, argv[2])
         else:
             fail(f"unknown command {cmd}")
     finally:

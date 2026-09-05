@@ -186,6 +186,7 @@ if grep -q 'label: "Show keys"' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'read-keys' "$PLUGIN_DIR/Service.qml" \
   && grep -q 'input.keyboard.key' "$PLUGIN_DIR/config/bindings.lua" \
   && grep -q 'write-keys' "$PLUGIN_DIR/config/bindings.lua" \
+  && grep -q 'has-flag' "$PLUGIN_DIR/config/bindings.lua" \
   && grep -q 'pcall' "$PLUGIN_DIR/config/bindings.lua"; then
   ok "show-keys HUD is an option on the shape panel"
 else
@@ -340,12 +341,31 @@ if [[ -f $RUNTIME/keys.on && ! -L $RUNTIME/keys.on && $(<"$RUNTIME/keys.on") == 
 else
   bad "set-flag did not write keys.on"
 fi
+if runtime_io has-flag keys.on; then
+  ok "has-flag sees keys.on"
+else
+  bad "has-flag missed keys.on"
+fi
 runtime_io clear-flag keys.on
 if [[ ! -e $RUNTIME/keys.on ]]; then
   ok "clear-flag removes keys.on"
 else
   bad "clear-flag left keys.on"
 fi
+rc=0
+runtime_io has-flag keys.on 2>/dev/null || rc=$?
+if [[ $rc == 3 ]]; then
+  ok "has-flag exits 3 when keys.on is missing"
+else
+  bad "has-flag missing exit $rc (want 3)"
+fi
+ln -sf /etc/passwd "$RUNTIME/keys.on"
+if runtime_io has-flag keys.on 2>/dev/null; then
+  bad "has-flag followed a keys.on symlink"
+else
+  ok "has-flag refuses a keys.on symlink"
+fi
+rm -f "$RUNTIME/keys.on"
 
 runtime_io write-keys "Super + C"
 keys_out=$(runtime_io read-keys) || keys_out=""
@@ -360,12 +380,61 @@ else
   ok "write-keys rejects shell metacharacters"
 fi
 
+printf 'png-bytes' | runtime_io write-file preview.png
+if [[ -f $RUNTIME/preview.png && ! -L $RUNTIME/preview.png && $(<"$RUNTIME/preview.png") == png-bytes ]]; then
+  ok "write-file stores preview.png atomically"
+else
+  bad "write-file did not store preview.png"
+fi
+if printf 'x' | runtime_io write-file evil.txt 2>/dev/null; then
+  bad "write-file accepted a name outside the allow-list"
+else
+  ok "write-file rejects names outside the allow-list"
+fi
+runtime_io remove-file preview.png
+if [[ ! -e $RUNTIME/preview.png ]]; then
+  ok "remove-file unlinks preview.png"
+else
+  bad "remove-file left preview.png"
+fi
+
+src=$work/a.mp4
+dst=$work/b.mp4
+secret=$work/secret.txt
+printf 'src-bytes\n' >"$src"
+printf 'dst-bytes\n' >"$dst"
+if replaced=$(runtime_io replace-recording "$src" "$dst") \
+  && [[ $replaced == "$dst" && $(<"$dst") == src-bytes && ! -e $src ]]; then
+  ok "replace-recording swaps same-directory mp4s without following"
+else
+  bad "replace-recording failed src=$([[ -e $src ]] && echo yes || echo no) dst=$(printf %q "$(<"$dst" 2>/dev/null)")"
+fi
+printf 'src-bytes\n' >"$src"
+printf 'keep-me\n' >"$secret"
+ln -sf "$secret" "$dst"
+if runtime_io replace-recording "$src" "$dst" 2>/dev/null; then
+  bad "replace-recording followed a destination symlink"
+else
+  ok "replace-recording refuses a destination symlink"
+fi
+if [[ $(<"$secret") == keep-me ]]; then
+  ok "replace-recording did not rewrite the symlink target"
+else
+  bad "replace-recording clobbered the symlink target"
+fi
+rm -f "$src" "$dst" "$secret"
+runtime_io unlink-recording "$work/missing.mp4" || true
+
 if grep -n 'bash", "-c"' "$PLUGIN_DIR/Service.qml" \
   || grep -n '/tmp/omarchy-screenrecord-filename' "$PLUGIN_DIR/Service.qml" "$PLUGIN_DIR/record.sh" \
   || grep -n 'omarchy-capture-keys.on' "$PLUGIN_DIR/Service.qml" \
   || grep -n 'path: root.keyHudPath' "$PLUGIN_DIR/Service.qml" \
-  || grep -n 'io.open(path, "w")' "$PLUGIN_DIR/config/bindings.lua" \
-  || grep -n '/tmp}/omarchy-cam-compose.log' "$PLUGIN_DIR/bin/compose-cam"; then
+  || grep -n 'io.open' "$PLUGIN_DIR/config/bindings.lua" \
+  || grep -n 'compose.log' "$PLUGIN_DIR/bin/compose-cam" \
+  || grep -n 'mv -f' "$PLUGIN_DIR/bin/compose-cam" \
+  || grep -n '>>' "$PLUGIN_DIR/bin/compose-cam" \
+  || ! grep -q 'function pluginBash' "$PLUGIN_DIR/Service.qml" \
+  || ! grep -q 'function trustedEnv' "$PLUGIN_DIR/Service.qml"; then
   bad "persistent key/filename I/O still bypasses runtime-io"
 else
   ok "keys marker and stock filename go through runtime-io"

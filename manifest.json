@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ianm.capture-overlay",
   "name": "Capture overlay",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "author": "Ian McMurray",
   "license": "MIT",
   "description": "Extra Screenrecord row: live 1080p grab, webcam pip in the file, crop and zoom, fades, and key overlay.",

@@ -74,7 +74,7 @@ Recordings in your Videos folder are left alone.
 
 ## Permissions
 
-Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/ianm-capture-overlay/keys.on`; bare typing stays hidden. Pick results, the keys marker, and the fade recipe stay under that runtime directory as parsed data, not shell.
+Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/ianm-capture-overlay/keys.on`; bare typing stays hidden. Pick results, the keys marker/HUD, the fade recipe, and the save-toast preview stay under that runtime directory via `bin/runtime-io` (atomic no-follow writes, bounded no-follow reads). `pick` IPC does not accept caller file paths. The camera recipe is parsed `KEY=VALUE` data, not shell.
 
 ## License
 

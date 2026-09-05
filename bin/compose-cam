@@ -17,10 +17,6 @@ fade_in=${FADE_IN:-0}
 fade_out=${FADE_OUT:-0}
 fade_sec=${FADE_SEC:-2.5}
 work=$screen
-log="$RUNTIME/compose.log"
-{
-  echo "$(date '+%F %T') file=$work fade_in=$fade_in fade_out=$fade_out fade_sec=$fade_sec"
-} >>"$log"
 if [[ $fade_in == 1 || $fade_out == 1 ]]; then
   dur=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$work" 2>/dev/null || echo 0)
   fade_sec=$(awk -v d="$dur" -v f="$fade_sec" 'BEGIN {
@@ -46,15 +42,14 @@ if [[ $fade_in == 1 || $fade_out == 1 ]]; then
     if ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$work" 2>/dev/null | grep -q audio; then
       audio_args=(-af "$af" -c:a aac -b:a 192k)
     fi
-    echo "$(date '+%F %T') vf=$vf dur=$dur" >>"$log"
+    runtime_io unlink-recording "$faded" || true
     if ffmpeg -hide_banner -loglevel error -y -i "$work" -vf "format=yuv420p,$vf" "${audio_args[@]}" \
       -c:v libx264 -preset ultrafast -tune fastdecode -crf 23 -threads 0 "$faded"
     then
-      mv -f "$faded" "$work"
+      runtime_io replace-recording "$faded" "$work" >/dev/null
       notify -t 4000 "Fades applied" "Fade in/out written into the saved recording."
     else
-      rm -f "$faded"
-      echo "$(date '+%F %T') fade ffmpeg failed" >>"$log"
+      runtime_io unlink-recording "$faded" || true
       notify -u critical -t 4000 "Fade failed" "Kept the recording without fade in/out."
     fi
   fi
