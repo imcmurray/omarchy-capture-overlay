@@ -447,6 +447,148 @@ else
   ok "pick.sh consumes results through read-pick"
 fi
 
+if [[ -x $PLUGIN_DIR/bin/setup ]] && grep -q 'PLUGIN_ID = "ianm.capture-overlay"' "$PLUGIN_DIR/bin/setup" \
+  && grep -q 'LUA_BEGIN' "$PLUGIN_DIR/bin/setup"; then
+  ok "bin/setup is executable and uses marked blocks"
+else
+  bad "bin/setup is missing or does not use marked blocks"
+fi
+
+# --- setup install/remove ---
+setup_home=$(mktemp -d)
+OMARCHY_PATH=${OMARCHY_PATH:-/usr/share/omarchy}
+mkdir -p "$setup_home/.config/hypr" "$setup_home/.config/omarchy/extensions"
+if [[ -f $OMARCHY_PATH/config/hypr/hyprland.lua ]]; then
+  cp "$OMARCHY_PATH/config/hypr/hyprland.lua" "$setup_home/.config/hypr/hyprland.lua"
+  cp "$OMARCHY_PATH/config/hypr/bindings.lua" "$setup_home/.config/hypr/bindings.lua"
+  cp "$OMARCHY_PATH/config/omarchy/extensions/omarchy-menu.jsonc" "$setup_home/.config/omarchy/extensions/omarchy-menu.jsonc"
+else
+  printf '%s\n' '-- stub hyprland' 'require("hypr.bindings")' >"$setup_home/.config/hypr/hyprland.lua"
+  printf '%s\n' '-- stub bindings' >"$setup_home/.config/hypr/bindings.lua"
+  printf '%s\n' '{' '  // header' '}' >"$setup_home/.config/omarchy/extensions/omarchy-menu.jsonc"
+fi
+python3 - "$setup_home/.config/omarchy/extensions/omarchy-menu.jsonc" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+text = p.read_text().rstrip()
+if text.endswith("}"):
+    inner = text[:-1].rstrip()
+    extra = '  "personal.notes": {"icon":"x","label":"Notes","action":"true"}'
+    if inner.endswith("{"):
+        text = inner + "\n" + extra + "\n}\n"
+    else:
+        text = inner + ",\n" + extra + "\n}\n"
+    p.write_text(text)
+PY
+
+if "$PLUGIN_DIR/bin/setup" /tmp/evil 2>/dev/null; then
+  bad "setup accepted a destination path"
+else
+  ok "setup refuses destination paths"
+fi
+
+HOME=$setup_home "$PLUGIN_DIR/bin/setup" >/tmp/ianm-setup1.out
+HOME=$setup_home "$PLUGIN_DIR/bin/setup" >/tmp/ianm-setup2.out
+menu=$setup_home/.config/omarchy/extensions/omarchy-menu.jsonc
+hypr=$setup_home/.config/hypr/hyprland.lua
+binds=$setup_home/.config/hypr/bindings.lua
+begins=$(grep -h 'ianm.capture-overlay:begin' "$menu" "$hypr" "$binds" | wc -l)
+ends=$(grep -h 'ianm.capture-overlay:end' "$menu" "$hypr" "$binds" | wc -l)
+if [[ $begins -eq 3 && $ends -eq 3 ]]; then
+  ok "setup is idempotent (one marked block per file)"
+else
+  bad "setup marker counts begin=$begins end=$ends (want 3/3)"
+fi
+python3 - "$menu" "$PLUGIN_DIR" <<'PY' && ok "setup menu has overlay and stop, keeps extra keys" || bad "setup menu merge is wrong"
+import json, re, sys
+from pathlib import Path
+raw = Path(sys.argv[1]).read_text()
+plugin = sys.argv[2]
+raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+raw = re.sub(r"^\s*//.*$", "", raw, flags=re.M)
+raw = re.sub(r",(\s*[}\]])", r"\1", raw)
+m = json.loads(raw)
+assert m["personal.notes"]["label"] == "Notes", m.keys()
+stop = m["trigger.capture.screenrecord.stop"]["action"]
+overlay = m["trigger.capture.screenrecord.overlay"]["action"]
+assert plugin in stop and "--stop-recording" in stop, stop
+assert plugin in overlay and "--with-webcam" in overlay, overlay
+assert "trigger.capture.screenrecord.webcam" not in m
+PY
+if grep -q 'namespace = "ianm-capture-overlay"' "$hypr" \
+  && grep -q 'ALT + PRINT' "$binds" \
+  && grep -q 'write-keys' "$binds" \
+  && grep -q 'has-flag' "$binds"; then
+  ok "setup writes hyprland layer rules and Alt+Print bindings"
+else
+  bad "setup did not write hyprland/bindings snippets"
+fi
+if [[ -f $hypr.ianm.capture-overlay.bak && -f $binds.ianm.capture-overlay.bak ]]; then
+  ok "setup writes a one-time backup of existing files"
+else
+  bad "setup did not write backups"
+fi
+
+# Unmanaged copies (no markers) are replaced, not duplicated.
+unmanaged=$(mktemp -d)
+mkdir -p "$unmanaged/.config/hypr" "$unmanaged/.config/omarchy/extensions"
+cp "$setup_home/.config/hypr/hyprland.lua.ianm.capture-overlay.bak" "$unmanaged/.config/hypr/hyprland.lua"
+cp "$setup_home/.config/hypr/bindings.lua.ianm.capture-overlay.bak" "$unmanaged/.config/hypr/bindings.lua"
+cp "$OMARCHY_PATH/config/omarchy/extensions/omarchy-menu.jsonc" "$unmanaged/.config/omarchy/extensions/omarchy-menu.jsonc" 2>/dev/null \
+  || printf '%s\n' '{' '}' >"$unmanaged/.config/omarchy/extensions/omarchy-menu.jsonc"
+cat "$PLUGIN_DIR/config/hyprland.lua" >>"$unmanaged/.config/hypr/hyprland.lua"
+cat "$PLUGIN_DIR/config/bindings.lua" >>"$unmanaged/.config/hypr/bindings.lua"
+python3 - "$unmanaged/.config/omarchy/extensions/omarchy-menu.jsonc" "$PLUGIN_DIR/config/omarchy-menu.jsonc" <<'PY'
+from pathlib import Path
+import sys
+dst, src = Path(sys.argv[1]), Path(sys.argv[2])
+raw = dst.read_text().rstrip()
+snippet = src.read_text().strip()
+if snippet.startswith("{") and snippet.endswith("}"):
+    snippet = snippet[1:-1].strip()
+if raw.endswith("}"):
+    raw = raw[:-1].rstrip()
+    if not raw.endswith("{") and not raw.endswith(","):
+        raw += ","
+    dst.write_text(raw + "\n" + snippet + "\n}\n")
+PY
+HOME=$unmanaged "$PLUGIN_DIR/bin/setup" >/dev/null
+ubegins=$(grep -h 'ianm.capture-overlay:begin' \
+  "$unmanaged/.config/omarchy/extensions/omarchy-menu.jsonc" \
+  "$unmanaged/.config/hypr/hyprland.lua" \
+  "$unmanaged/.config/hypr/bindings.lua" | wc -l)
+if [[ $ubegins -eq 3 ]] \
+  && [[ $(grep -c 'namespace = "ianm-capture-overlay"' "$unmanaged/.config/hypr/hyprland.lua") -eq 1 ]] \
+  && [[ $(grep -c 'capture-overlay cancel' "$unmanaged/.config/hypr/bindings.lua") -eq 1 ]]; then
+  ok "setup converts an unmanaged merge into one marked block"
+else
+  bad "setup left duplicate unmanaged snippets (begins=$ubegins hypr=$(grep -c 'namespace = \"ianm-capture-overlay\"' "$unmanaged/.config/hypr/hyprland.lua") binds=$(grep -c 'capture-overlay cancel' "$unmanaged/.config/hypr/bindings.lua"))"
+fi
+rm -rf "$unmanaged"
+
+HOME=$setup_home "$PLUGIN_DIR/bin/setup" --remove >/tmp/ianm-setup-rm.out
+if grep -q 'ianm.capture-overlay:begin' "$menu" "$hypr" "$binds" \
+  || grep -q 'ianm-capture-overlay' "$hypr" "$binds" \
+  || grep -q 'trigger.capture.screenrecord.overlay' "$menu"; then
+  bad "setup --remove left overlay snippets behind"
+else
+  ok "setup --remove deletes the marked snippets"
+fi
+python3 - "$menu" <<'PY' && ok "setup --remove keeps unrelated menu keys" || bad "setup --remove dropped unrelated menu keys"
+import json, re, sys
+from pathlib import Path
+raw = Path(sys.argv[1]).read_text()
+raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+raw = re.sub(r"^\s*//.*$", "", raw, flags=re.M)
+raw = re.sub(r",(\s*[}\]])", r"\1", raw)
+m = json.loads(raw)
+assert m["personal.notes"]["label"] == "Notes", m
+assert "trigger.capture.screenrecord.overlay" not in m
+assert "ianm.capture-overlay" not in json.dumps(m)
+PY
+rm -rf "$setup_home"
+
 # --- compose-cam fades ---
 clip=$work/clip.mp4
 if ffmpeg -hide_banner -loglevel error -y \

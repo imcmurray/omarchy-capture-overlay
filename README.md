@@ -22,20 +22,15 @@ Fades are ffmpeg on the saved file. Border color comes from the theme.
 
 ```bash
 omarchy plugin add https://github.com/imcmurray/omarchy-capture-overlay.git --enable
+~/.config/omarchy/plugins/ianm.capture-overlay/bin/setup
+hyprctl reload
 ```
 
-That loads the service. It does **not** rewrite your menu or Hyprland config. The extra Screenrecord row and fade-on-stop path still need the three snippets in `config/` — without them Alt+Print stays on stock screenrecord:
-
-1. **Menu** — merge `config/omarchy-menu.jsonc` into `~/.config/omarchy/extensions/omarchy-menu.jsonc`
-2. **Hyprland layers** — append `config/hyprland.lua` to `~/.config/hypr/hyprland.lua`
-3. **Bindings** — append `config/bindings.lua` to `~/.config/hypr/bindings.lua` (unbinds stock Alt+Print and Super+Alt `[` / `]` first, and installs the Show keys hook)
+`plugin add --enable` only loads the service. It does **not** rewrite your menu or Hyprland config. `bin/setup` is the one extra command: it adds the Screenrecord overlay row, the fade-on-stop path, layer rules, Alt+Print, Super+Alt `[` / `]`, and the Show keys hook. Safe to run again — it replaces its own marked block instead of duplicating it.
 
 The Hyprland snippet turns on `decoration.blur` (Omarchy looknfeel leaves it off) so the shape and camera pickers can frost the rest of the screen. It also adds layer rules for the picker, the live overlay, and the countdown.
 
-```bash
-hyprctl reload
-omarchy restart shell
-```
+You can still merge the three files in `config/` by hand if you prefer. Without setup or that merge, Alt+Print stays on stock screenrecord.
 
 The marketplace card uses the same root `preview.png` as the hero above.
 
@@ -56,15 +51,21 @@ Omarchy Quattro with a webcam (`omarchy-hw-webcam`). Capture uses stock `gpu-scr
 
 ```bash
 omarchy plugin update ianm.capture-overlay
+~/.config/omarchy/plugins/ianm.capture-overlay/bin/setup
+hyprctl reload
 ```
+
+Re-running setup refreshes the snippets to this version.
 
 ## Remove
 
 ```bash
+~/.config/omarchy/plugins/ianm.capture-overlay/bin/setup --remove
+hyprctl reload
 omarchy plugin remove ianm.capture-overlay
 ```
 
-Then delete the three `config/` snippets if you want Alt+Print back on stock screenrecord, and `hyprctl reload`. Optional settings leftover:
+`--remove` takes out the marked snippets so Alt+Print returns to stock screenrecord. Optional settings leftover:
 
 ```bash
 rm -f ~/.config/omarchy/ianm.capture-overlay.json
@@ -74,7 +75,7 @@ Recordings in your Videos folder are left alone.
 
 ## Permissions
 
-Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/ianm-capture-overlay/keys.on`; bare typing stays hidden. Pick results, the keys marker/HUD, the fade recipe, and the save-toast preview stay under that runtime directory via `bin/runtime-io` (atomic no-follow writes, bounded no-follow reads). `pick` IPC does not accept caller file paths. The camera recipe is parsed `KEY=VALUE` data, not shell.
+Runs as unsandboxed user code inside `omarchy-shell`. Overlay recordings open the webcam. Stop goes through plugin `record.sh` so fades render before the toast. Show keys reads Hyprland keyboard events only while the overlay has armed `$XDG_RUNTIME_DIR/ianm-capture-overlay/keys.on`; bare typing stays hidden. Pick results, the keys marker/HUD, the fade recipe, and the save-toast preview stay under that runtime directory via `bin/runtime-io` (atomic no-follow writes, bounded no-follow reads). `pick` IPC does not accept caller file paths. The camera recipe is parsed `KEY=VALUE` data, not shell. `bin/setup` writes only the menu, `hyprland.lua`, and `bindings.lua` snippets when you run it; it does not take destination paths.
 
 ## License
 

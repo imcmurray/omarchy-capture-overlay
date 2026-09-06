@@ -1,0 +1,425 @@
+#!/usr/bin/python3
+"""Install or remove the capture-overlay menu, Hyprland, and binding snippets.
+
+Run by the user after `omarchy plugin add --enable`. Does not accept destination
+paths. Writes only the three Omarchy user-config files, atomically, without
+following symlinks. A second run replaces the marked block instead of duplicating
+it. `--remove` deletes that block so stock Alt+Print returns.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import stat
+import sys
+
+PLUGIN_ID = "ianm.capture-overlay"
+LUA_BEGIN = f"-- {PLUGIN_ID}:begin"
+LUA_END = f"-- {PLUGIN_ID}:end"
+JSONC_BEGIN = f"// {PLUGIN_ID}:begin"
+JSONC_END = f"// {PLUGIN_ID}:end"
+STANDARD_ROOT = f"$HOME/.config/omarchy/plugins/{PLUGIN_ID}"
+LUA_HELPER_PREFIX = f'home .. "/.config/omarchy/plugins/{PLUGIN_ID}'
+STOP_KEY = "trigger.capture.screenrecord.stop"
+OVERLAY_KEY = "trigger.capture.screenrecord.overlay"
+MAX_CONFIG = 1024 * 1024
+OPEN_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+MARKED_LUA = re.compile(
+    r"\n*" + re.escape(LUA_BEGIN) + r"\n.*?" + re.escape(LUA_END) + r"\n?",
+    re.S,
+)
+MARKED_JSONC = re.compile(
+    r"\n*" + re.escape(JSONC_BEGIN) + r"\n.*?" + re.escape(JSONC_END) + r"\n?",
+    re.S,
+)
+JSONC_KEY = re.compile(
+    r",?\s*(?://[^\n]*\n\s*)*\"(trigger\.capture\.screenrecord\.(?:stop|overlay))\"\s*:\s*\{[^{}]*\}",
+    re.S,
+)
+
+
+def fail(msg: str, code: int = 1) -> None:
+    print(msg, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def plugin_dir() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def home_dir() -> str:
+    home = os.environ.get("HOME", "")
+    if not home or home in (".", "..") or "\0" in home:
+        fail("HOME is unset")
+    return home
+
+
+def dests(home: str) -> dict[str, str]:
+    return {
+        "menu": os.path.join(home, ".config/omarchy/extensions/omarchy-menu.jsonc"),
+        "hyprland": os.path.join(home, ".config/hypr/hyprland.lua"),
+        "bindings": os.path.join(home, ".config/hypr/bindings.lua"),
+    }
+
+
+def check_name(name: str) -> None:
+    if not name or name in (".", "..") or "/" in name or "\0" in name:
+        fail("invalid file name")
+
+
+def lua_escape(path: str) -> str:
+    return path.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def load_jsonc(raw: str) -> dict:
+    stripped = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+    stripped = re.sub(r"^\s*//.*$", "", stripped, flags=re.M)
+    stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)
+    data = json.loads(stripped)
+    if not isinstance(data, dict):
+        fail("menu JSONC must be an object")
+    return data
+
+
+def read_plugin_file(root: str, rel: str) -> str:
+    path = os.path.join(root, rel)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError as e:
+        fail(f"{rel}: {e}")
+
+
+def render_lua(root: str, rel: str) -> str:
+    raw = read_plugin_file(root, rel)
+    raw = raw.replace(LUA_HELPER_PREFIX, '"' + lua_escape(root))
+    raw = raw.replace(STANDARD_ROOT, root)
+    return raw.strip() + "\n"
+
+
+def render_menu_block(root: str) -> str:
+    data = load_jsonc(read_plugin_file(root, "config/omarchy-menu.jsonc"))
+    for value in data.values():
+        if isinstance(value, dict) and isinstance(value.get("action"), str):
+            value["action"] = value["action"].replace(STANDARD_ROOT, root)
+    parts = []
+    for key, value in data.items():
+        dumped = json.dumps({key: value}, indent=2, ensure_ascii=False)
+        parts.append(dumped.strip()[1:-1].strip())
+    inner = ",\n  ".join(parts)
+    return f"  {JSONC_BEGIN}\n  {inner}\n  {JSONC_END}\n"
+
+
+def marked_lua(body: str) -> str:
+    return f"{LUA_BEGIN}\n{body.rstrip()}\n{LUA_END}\n"
+
+
+def strip_marked_lua(text: str) -> str:
+    return MARKED_LUA.sub("\n", text)
+
+
+def strip_marked_jsonc(text: str) -> str:
+    return MARKED_JSONC.sub("\n", text)
+
+
+def strip_unmanaged_hyprland(text: str) -> str:
+    start = text.find("-- Capture-region overlay should appear instantly")
+    if start < 0:
+        needle = 'namespace = "ianm-capture-overlay"'
+        hit = text.find(needle)
+        if hit < 0:
+            return text
+        start = text.rfind("\n", 0, hit) + 1
+        cfg = text.rfind("hl.config({", 0, start)
+        if cfg >= 0:
+            start = cfg
+            while start > 0:
+                prev = text.rfind("\n", 0, start - 1)
+                line = text[prev + 1 : start]
+                if line.strip().startswith("--"):
+                    start = prev + 1 if prev >= 0 else 0
+                else:
+                    break
+    end_at = text.find('namespace = "ianm-cam-preview"', start)
+    if end_at < 0:
+        return text[:start].rstrip() + ("\n" if start else "")
+    nl = text.find("\n", end_at)
+    end = nl + 1 if nl >= 0 else len(text)
+    return text[:start] + text[end:]
+
+
+def strip_unmanaged_bindings(text: str) -> str:
+    starts = (
+        "-- Close a leftover capture picker",
+        "-- Note: ALT+PRINT was previously bound to Screenrecording.",
+    )
+    start = -1
+    for token in starts:
+        i = text.find(token)
+        if i >= 0:
+            start = i
+            break
+    if start < 0:
+        for token in ("ianm.capture-overlay", "omarchy-capture-keys", "ianm_capture_keys"):
+            i = text.find(token)
+            if i >= 0:
+                start = text.rfind("\n", 0, i) + 1
+                break
+    if start < 0:
+        return text
+    chunk = text[start:]
+    if not any(
+        token in chunk
+        for token in (
+            "ianm.capture-overlay",
+            "ianm-capture-overlay",
+            "omarchy-capture-keys",
+            "ianm_capture_keys",
+        )
+    ):
+        return text
+    last_end = None
+    for m in re.finditer(r"(?m)^end\s*$", chunk):
+        last_end = m.end()
+    if last_end is None:
+        return text[:start].rstrip() + "\n"
+    return text[:start] + chunk[last_end:].lstrip("\n")
+
+
+def ours_in_object(blob: str) -> bool:
+    return PLUGIN_ID in blob or "ianm-capture-overlay" in blob
+
+
+def strip_unmanaged_menu_keys(text: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        key = match.group(1)
+        blob = match.group(0)
+        if key == OVERLAY_KEY or (key == STOP_KEY and ours_in_object(blob)):
+            return ""
+        return blob
+
+    text = JSONC_KEY.sub(repl, text)
+    text = re.sub(r",\s*,", ",", text)
+    text = re.sub(r"\{\s*,", "{", text)
+    text = re.sub(r",\s*}", "\n}", text)
+    return text
+
+
+def insert_jsonc_block(text: str, block: str) -> str:
+    text = text.strip()
+    if not text:
+        text = "{}"
+    if not text.endswith("}"):
+        fail("menu JSONC does not end with }")
+    try:
+        data = load_jsonc(text)
+    except Exception as e:
+        fail(f"menu JSONC is not valid: {e}")
+    inner = text[:-1].rstrip()
+    if not data:
+        return inner + "\n" + block + "}\n"
+    if not inner.endswith(","):
+        inner += ","
+    return inner + "\n" + block + "}\n"
+
+
+def tidy_lua(text: str) -> str:
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def open_parent(path: str) -> int:
+    parent = os.path.dirname(path)
+    try:
+        os.makedirs(parent, mode=0o700, exist_ok=True)
+    except OSError as e:
+        fail(f"{parent}: {e}")
+    try:
+        return os.open(parent, OPEN_DIR)
+    except OSError as e:
+        fail(f"{parent}: {e}")
+
+
+def read_existing(path: str, required: bool) -> str | None:
+    name = os.path.basename(path)
+    check_name(name)
+    dir_fd = open_parent(path)
+    try:
+        try:
+            fd = os.open(name, OPEN_READ, dir_fd=dir_fd)
+        except FileNotFoundError:
+            if required:
+                fail(f"missing {path} — is this an Omarchy system?")
+            return None
+        except OSError as e:
+            fail(f"{path}: {e}")
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+                fail(f"refusing {path}: not a user-owned regular file")
+            if st.st_size > MAX_CONFIG:
+                fail(f"{path} is too large")
+            return os.read(fd, st.st_size).decode("utf-8")
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dir_fd)
+
+
+def backup_once(dir_fd: int, name: str, data: bytes) -> None:
+    bak = f"{name}.{PLUGIN_ID}.bak"
+    try:
+        existing = os.open(bak, OPEN_READ, dir_fd=dir_fd)
+    except FileNotFoundError:
+        existing = None
+    except OSError:
+        return
+    if existing is not None:
+        os.close(existing)
+        return
+    tmp = f".{bak}.tmp.{os.getpid()}"
+    fd = os.open(
+        tmp,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+        dir_fd=dir_fd,
+    )
+    try:
+        os.write(fd, data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    try:
+        os.replace(tmp, bak, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+
+
+def atomic_write(path: str, text: str, previous: str | None) -> None:
+    name = os.path.basename(path)
+    check_name(name)
+    data = text.encode("utf-8")
+    dir_fd = open_parent(path)
+    try:
+        if previous is not None:
+            backup_once(dir_fd, name, previous.encode("utf-8"))
+        tmp = f".{name}.tmp.{os.getpid()}"
+        fd = os.open(
+            tmp,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=dir_fd,
+        )
+        try:
+            os.write(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        try:
+            os.replace(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        except Exception:
+            try:
+                os.unlink(tmp, dir_fd=dir_fd)
+            except OSError:
+                pass
+            raise
+    finally:
+        os.close(dir_fd)
+
+
+def prepare_lua(text: str, kind: str) -> str:
+    text = strip_marked_lua(text)
+    if kind == "hyprland":
+        text = strip_unmanaged_hyprland(text)
+    else:
+        text = strip_unmanaged_bindings(text)
+    return tidy_lua(text)
+
+
+def install_lua(path: str, kind: str, snippet: str, required: bool) -> None:
+    previous = read_existing(path, required=required)
+    if previous is None:
+        previous = ""
+    body = prepare_lua(previous, kind)
+    body = body.rstrip() + "\n\n" + marked_lua(snippet)
+    atomic_write(path, tidy_lua(body), previous or None)
+
+
+def remove_lua(path: str, kind: str, required: bool) -> None:
+    previous = read_existing(path, required=required)
+    if previous is None:
+        return
+    body = prepare_lua(previous, kind)
+    atomic_write(path, tidy_lua(body), previous)
+
+
+def install_menu(path: str, block: str) -> None:
+    existing = read_existing(path, required=False)
+    previous = existing if existing is not None else "{\n}\n"
+    text = strip_marked_jsonc(previous)
+    text = strip_unmanaged_menu_keys(text)
+    text = insert_jsonc_block(text, block)
+    atomic_write(path, text, existing)
+
+
+def remove_menu(path: str) -> None:
+    previous = read_existing(path, required=False)
+    if previous is None:
+        return
+    text = strip_marked_jsonc(previous)
+    text = strip_unmanaged_menu_keys(text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if not text.endswith("\n"):
+        text += "\n"
+    atomic_write(path, text, previous)
+
+
+def usage() -> None:
+    fail(
+        "usage: setup [--remove]\n"
+        "  Adds or removes the overlay Screenrecord row, Hyprland layer rules,\n"
+        "  and Alt+Print / Show keys bindings. Safe to run more than once.\n"
+        "  Does not take file paths.",
+        2,
+    )
+
+
+def main(argv: list[str]) -> None:
+    remove = False
+    if len(argv) == 2 and argv[1] in ("--remove", "remove"):
+        remove = True
+    elif len(argv) == 2 and argv[1] in ("-h", "--help"):
+        usage()
+    elif len(argv) != 1:
+        usage()
+
+    root = plugin_dir()
+    home = home_dir()
+    paths = dests(home)
+    if remove:
+        remove_menu(paths["menu"])
+        remove_lua(paths["hyprland"], "hyprland", required=True)
+        remove_lua(paths["bindings"], "bindings", required=True)
+        print("Removed overlay menu row, Hyprland layer rules, and Alt+Print bindings.")
+        print("Reload with: hyprctl reload")
+        return
+
+    install_menu(paths["menu"], render_menu_block(root))
+    install_lua(paths["hyprland"], "hyprland", render_lua(root, "config/hyprland.lua"), required=True)
+    install_lua(paths["bindings"], "bindings", render_lua(root, "config/bindings.lua"), required=True)
+    print("Installed overlay menu row, Hyprland layer rules, and Alt+Print bindings.")
+    print("Safe to run again; it replaces its own block instead of duplicating it.")
+    print("Reload with: hyprctl reload")
+
+
+if __name__ == "__main__":
+    main(sys.argv)
