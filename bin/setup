@@ -22,6 +22,7 @@ JSONC_BEGIN = f"// {PLUGIN_ID}:begin"
 JSONC_END = f"// {PLUGIN_ID}:end"
 STANDARD_ROOT = f"$HOME/.config/omarchy/plugins/{PLUGIN_ID}"
 LUA_HELPER_PREFIX = f'home .. "/.config/omarchy/plugins/{PLUGIN_ID}'
+SHELL_PLUGIN_PATH = re.compile(re.escape(STANDARD_ROOT) + r"(?:/[A-Za-z0-9._+-]+)*")
 STOP_KEY = "trigger.capture.screenrecord.stop"
 OVERLAY_KEY = "trigger.capture.screenrecord.overlay"
 MAX_CONFIG = 1024 * 1024
@@ -74,6 +75,18 @@ def lua_escape(path: str) -> str:
     return path.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def shell_quote(path: str) -> str:
+    return "'" + path.replace("'", "'\"'\"'") + "'"
+
+
+def quote_shell_plugin_paths(text: str, root: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        rel = match.group(0)[len(STANDARD_ROOT) :]
+        return shell_quote(root + rel)
+
+    return SHELL_PLUGIN_PATH.sub(repl, text)
+
+
 def load_jsonc(raw: str) -> dict:
     stripped = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
     stripped = re.sub(r"^\s*//.*$", "", stripped, flags=re.M)
@@ -96,7 +109,7 @@ def read_plugin_file(root: str, rel: str) -> str:
 def render_lua(root: str, rel: str) -> str:
     raw = read_plugin_file(root, rel)
     raw = raw.replace(LUA_HELPER_PREFIX, '"' + lua_escape(root))
-    raw = raw.replace(STANDARD_ROOT, root)
+    raw = quote_shell_plugin_paths(raw, root)
     return raw.strip() + "\n"
 
 
@@ -104,7 +117,7 @@ def render_menu_block(root: str) -> str:
     data = load_jsonc(read_plugin_file(root, "config/omarchy-menu.jsonc"))
     for value in data.values():
         if isinstance(value, dict) and isinstance(value.get("action"), str):
-            value["action"] = value["action"].replace(STANDARD_ROOT, root)
+            value["action"] = quote_shell_plugin_paths(value["action"], root)
     parts = []
     for key, value in data.items():
         dumped = json.dumps({key: value}, indent=2, ensure_ascii=False)

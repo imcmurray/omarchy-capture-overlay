@@ -512,15 +512,17 @@ m = json.loads(raw)
 assert m["personal.notes"]["label"] == "Notes", m.keys()
 stop = m["trigger.capture.screenrecord.stop"]["action"]
 overlay = m["trigger.capture.screenrecord.overlay"]["action"]
-assert plugin in stop and "--stop-recording" in stop, stop
-assert plugin in overlay and "--with-webcam" in overlay, overlay
+assert stop.startswith("'") and f"'{plugin}/record.sh' --stop-recording" == stop, stop
+assert overlay.startswith("'") and f"'{plugin}/record.sh' --with-desktop-audio --with-microphone-audio --with-webcam" == overlay, overlay
 assert "trigger.capture.screenrecord.webcam" not in m
 PY
 if grep -q 'namespace = "ianm-capture-overlay"' "$hypr" \
   && grep -q 'ALT + PRINT' "$binds" \
-  && grep -q 'write-keys' "$binds" \
-  && grep -q 'has-flag' "$binds"; then
-  ok "setup writes hyprland layer rules and Alt+Print bindings"
+  && grep -q "write-keys" "$binds" \
+  && grep -q "has-flag" "$binds" \
+  && grep -q "'$PLUGIN_DIR/record.sh' --stop-recording" "$binds" \
+  && grep -q "'$PLUGIN_DIR/bin/omarchy-capture-webcam-resize' smaller" "$binds"; then
+  ok "setup writes hyprland layer rules and quoted Alt+Print bindings"
 else
   bad "setup did not write hyprland/bindings snippets"
 fi
@@ -529,6 +531,22 @@ if [[ -f $hypr.ianm.capture-overlay.bak && -f $binds.ianm.capture-overlay.bak ]]
 else
   bad "setup did not write backups"
 fi
+
+space_root=$(mktemp -d)/cap\ ture
+mkdir -p "$space_root/bin" "$space_root/config"
+cp "$PLUGIN_DIR/bin/setup" "$space_root/bin/setup"
+cp "$PLUGIN_DIR/config/hyprland.lua" "$PLUGIN_DIR/config/bindings.lua" \
+  "$PLUGIN_DIR/config/omarchy-menu.jsonc" "$space_root/config/"
+chmod +x "$space_root/bin/setup"
+HOME=$setup_home "$space_root/bin/setup" >/dev/null
+if grep -q "'$space_root/record.sh' --stop-recording" "$menu" "$binds" \
+  && grep -q "'$space_root/bin/omarchy-capture-webcam-resize' smaller" "$binds"; then
+  ok "setup shell-quotes plugin paths that contain whitespace"
+else
+  bad "setup left an unquoted path with whitespace"
+fi
+HOME=$setup_home "$PLUGIN_DIR/bin/setup" >/dev/null
+rm -rf "$(dirname "$space_root")"
 
 # Unmanaged copies (no markers) are replaced, not duplicated.
 unmanaged=$(mktemp -d)
