@@ -548,6 +548,58 @@ fi
 HOME=$setup_home "$PLUGIN_DIR/bin/setup" >/dev/null
 rm -rf "$(dirname "$space_root")"
 
+symlink_home=$(mktemp -d)
+evil=$(mktemp -d)
+mkdir -p "$symlink_home/.config/hypr" "$symlink_home/.config/omarchy/extensions"
+printf '%s\n' '-- stub hyprland' >"$symlink_home/.config/hypr/hyprland.lua"
+printf '%s\n' '-- stub bindings' >"$symlink_home/.config/hypr/bindings.lua"
+printf '%s\n' '{' '}' >"$symlink_home/.config/omarchy/extensions/omarchy-menu.jsonc"
+printf 'SECRET\n' >"$evil/hyprland.lua"
+mv "$symlink_home/.config/hypr" "$symlink_home/.config/hypr.real"
+ln -s "$evil" "$symlink_home/.config/hypr"
+if HOME=$symlink_home "$PLUGIN_DIR/bin/setup" 2>/tmp/ianm-setup-symlink.err; then
+  bad "setup followed a symlinked parent"
+else
+  ok "setup refuses a symlinked parent"
+fi
+if [[ $(<"$evil/hyprland.lua") == SECRET ]]; then
+  ok "setup did not rewrite through a symlinked parent"
+else
+  bad "setup clobbered the symlink target"
+fi
+rm -rf "$symlink_home/.config"
+mkdir -p "$evil/omarchy/extensions" "$evil/hypr"
+printf '%s\n' '-- stub hyprland' >"$evil/hypr/hyprland.lua"
+printf '%s\n' '-- stub bindings' >"$evil/hypr/bindings.lua"
+printf '%s\n' '{' '}' >"$evil/omarchy/extensions/omarchy-menu.jsonc"
+printf 'SECRET2\n' >"$evil/hypr/bindings.lua"
+ln -s "$evil" "$symlink_home/.config"
+if HOME=$symlink_home "$PLUGIN_DIR/bin/setup" 2>/tmp/ianm-setup-ancestor.err; then
+  bad "setup followed a symlinked ancestor"
+else
+  ok "setup refuses a symlinked ancestor"
+fi
+if [[ $(<"$evil/hypr/bindings.lua") == SECRET2 ]]; then
+  ok "setup did not rewrite through a symlinked ancestor"
+else
+  bad "setup clobbered a file via a symlinked ancestor"
+fi
+rm -rf "$symlink_home" "$evil"
+
+create_home=$(mktemp -d)
+mkdir -p "$create_home/.config/hypr"
+printf '%s\n' '-- stub hyprland' >"$create_home/.config/hypr/hyprland.lua"
+printf '%s\n' '-- stub bindings' >"$create_home/.config/hypr/bindings.lua"
+HOME=$create_home "$PLUGIN_DIR/bin/setup" >/dev/null
+if [[ -d $create_home/.config/omarchy/extensions && ! -L $create_home/.config/omarchy/extensions \
+  && -f $create_home/.config/omarchy/extensions/omarchy-menu.jsonc \
+  && ! -L $create_home/.config/omarchy/extensions/omarchy-menu.jsonc ]]; then
+  ok "setup creates missing config parents as real directories"
+else
+  bad "setup did not create a real extensions directory"
+fi
+rm -rf "$create_home"
+
 # Unmanaged copies (no markers) are replaced, not duplicated.
 unmanaged=$(mktemp -d)
 mkdir -p "$unmanaged/.config/hypr" "$unmanaged/.config/omarchy/extensions"
