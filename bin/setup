@@ -3,7 +3,7 @@
 
 Run by the user after `omarchy plugin add --enable`. Does not accept destination
 paths. Writes only the three Omarchy user-config files, atomically, walking
-owner-checked no-follow directory descriptors from HOME. A second run replaces
+owner-checked no-follow directory descriptors from `/`. A second run replaces
 the marked block instead of duplicating it. `--remove` deletes that block so
 stock Alt+Print returns.
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import stat
 import sys
 
@@ -28,8 +29,7 @@ STOP_KEY = "trigger.capture.screenrecord.stop"
 OVERLAY_KEY = "trigger.capture.screenrecord.overlay"
 MAX_CONFIG = 1024 * 1024
 OPEN_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
-OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
-OPEN_DIR_NOFOLLOW = OPEN_DIR | os.O_NOFOLLOW
+OPEN_DIR_NOFOLLOW = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 MARKED_LUA = re.compile(
     r"\n*" + re.escape(LUA_BEGIN) + r"\n.*?" + re.escape(LUA_END) + r"\n?",
     re.S,
@@ -104,12 +104,36 @@ def load_jsonc(raw: str) -> dict:
 
 
 def read_plugin_file(root: str, rel: str) -> str:
-    path = os.path.join(root, rel)
+    if not root.startswith("/") or any(
+        part in ("", ".", "..") for part in root.split("/")[1:]
+    ):
+        fail("plugin directory must be a canonical absolute path")
+    rel_names = split_rel(rel)
+    root_names = split_rel(root[1:])
+    home_names = split_rel(home_dir()[1:])
+    components = root_names + rel_names[:-1]
+    dir_fd = walk_from_root(
+        components,
+        ancestor_until=max(len(home_names) - 1, 0),
+        create_from=len(components),
+    )
+    name = rel_names[-1]
     try:
-        with open(path, encoding="utf-8") as f:
-            return f.read()
-    except OSError as e:
-        fail(f"{rel}: {e}")
+        try:
+            fd = os.open(name, OPEN_READ, dir_fd=dir_fd)
+        except OSError as e:
+            fail(f"{rel}: {e}")
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+                fail(f"refusing {rel}: not a user-owned regular file")
+            if st.st_size > MAX_CONFIG:
+                fail(f"{rel} is too large")
+            return os.read(fd, st.st_size).decode("utf-8")
+        finally:
+            os.close(fd)
+    finally:
+        os.close(dir_fd)
 
 
 def render_lua(root: str, rel: str) -> str:
@@ -252,10 +276,15 @@ def tidy_lua(text: str) -> str:
     return text
 
 
-def owned_dir(fd: int, path: str) -> None:
+def check_dir(fd: int, path: str, *, ancestor: bool) -> None:
     st = os.fstat(fd)
-    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+    uid = os.getuid()
+    owners = {0, uid} if ancestor else {uid}
+    sticky_root = ancestor and st.st_uid == 0 and bool(st.st_mode & stat.S_ISVTX)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid not in owners:
         fail(f"refusing {path}: not a user-owned directory")
+    if st.st_mode & 0o022 and not sticky_root:
+        fail(f"refusing {path}: directory is group or world writable")
 
 
 def split_rel(rel: str) -> list[str]:
@@ -267,7 +296,11 @@ def split_rel(rel: str) -> list[str]:
     return names
 
 
-def open_child_dir(parent_fd: int, name: str, path: str) -> int:
+def staging_name(prefix: str) -> str:
+    return f".{prefix}.{secrets.token_hex(16)}.tmp"
+
+
+def open_child_dir(parent_fd: int, name: str, path: str, *, ancestor: bool) -> int:
     try:
         child = os.open(name, OPEN_DIR_NOFOLLOW, dir_fd=parent_fd)
     except OSError as e:
@@ -276,13 +309,41 @@ def open_child_dir(parent_fd: int, name: str, path: str) -> int:
         except OSError:
             fail(f"{path}: {e}")
         if stat.S_ISLNK(mode):
-            fail(f"refusing {path}: parent is a symlink")
+            fail(f"refusing {path}: is a symlink")
         fail(f"{path}: {e}")
     try:
-        owned_dir(child, path)
+        check_dir(child, path, ancestor=ancestor)
         return child
     except BaseException:
         os.close(child)
+        raise
+
+
+def walk_from_root(
+    components: list[str], *, ancestor_until: int, create_from: int
+) -> int:
+    try:
+        fd = os.open("/", OPEN_DIR_NOFOLLOW)
+    except OSError as e:
+        fail(f"/: {e}")
+    try:
+        check_dir(fd, "/", ancestor=True)
+        walked = ""
+        for i, name in enumerate(components):
+            walked = f"{walked}/{name}"
+            if i >= create_from:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                except OSError as e:
+                    fail(f"{walked}: {e}")
+            child = open_child_dir(fd, name, walked, ancestor=i < ancestor_until)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
         raise
 
 
@@ -291,29 +352,13 @@ def open_parent(path: str) -> int:
     prefix = home + "/"
     if not path.startswith(prefix):
         fail("destination is outside HOME")
-    names = split_rel(path[len(prefix) :])
-    try:
-        fd = os.open(home, OPEN_DIR)
-    except OSError as e:
-        fail(f"{home}: {e}")
-    try:
-        owned_dir(fd, home)
-        walked = home
-        for name in names[:-1]:
-            walked = f"{walked}/{name}"
-            try:
-                os.mkdir(name, 0o700, dir_fd=fd)
-            except FileExistsError:
-                pass
-            except OSError as e:
-                fail(f"{walked}: {e}")
-            child = open_child_dir(fd, name, walked)
-            os.close(fd)
-            fd = child
-        return fd
-    except BaseException:
-        os.close(fd)
-        raise
+    dest_names = split_rel(path[1:])
+    home_names = split_rel(home[1:])
+    return walk_from_root(
+        dest_names[:-1],
+        ancestor_until=max(len(home_names) - 1, 0),
+        create_from=len(home_names),
+    )
 
 
 def read_existing(path: str, required: bool) -> str | None:
@@ -353,7 +398,7 @@ def backup_once(dir_fd: int, name: str, data: bytes) -> None:
     if existing is not None:
         os.close(existing)
         return
-    tmp = f".{bak}.tmp.{os.getpid()}"
+    tmp = staging_name(bak)
     fd = os.open(
         tmp,
         os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -384,7 +429,7 @@ def atomic_write(path: str, text: str, previous: str | None) -> None:
     try:
         if previous is not None:
             backup_once(dir_fd, name, previous.encode("utf-8"))
-        tmp = f".{name}.tmp.{os.getpid()}"
+        tmp = staging_name(name)
         fd = os.open(
             tmp,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,

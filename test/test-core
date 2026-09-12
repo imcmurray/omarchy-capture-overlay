@@ -586,6 +586,44 @@ else
 fi
 rm -rf "$symlink_home" "$evil"
 
+linked_home=$(mktemp -d)
+real_home=$(mktemp -d)
+mkdir -p "$real_home/.config/hypr" "$real_home/.config/omarchy/extensions"
+printf 'SECRET3\n' >"$real_home/.config/hypr/hyprland.lua"
+printf '%s\n' '-- stub bindings' >"$real_home/.config/hypr/bindings.lua"
+printf '%s\n' '{' '}' >"$real_home/.config/omarchy/extensions/omarchy-menu.jsonc"
+ln -s "$real_home" "$linked_home/home"
+if HOME=$linked_home/home "$PLUGIN_DIR/bin/setup" 2>/tmp/ianm-setup-home-link.err; then
+  bad "setup followed a symlinked HOME"
+else
+  ok "setup refuses a symlinked HOME"
+fi
+if [[ $(<"$real_home/.config/hypr/hyprland.lua") == SECRET3 ]]; then
+  ok "setup did not rewrite through a symlinked HOME"
+else
+  bad "setup clobbered a file via a symlinked HOME"
+fi
+rm -rf "$linked_home" "$real_home"
+
+base_home=$(mktemp -d)
+real_tree=$(mktemp -d)
+mkdir -p "$real_tree/user/.config/hypr" "$real_tree/user/.config/omarchy/extensions"
+printf 'SECRET4\n' >"$real_tree/user/.config/hypr/hyprland.lua"
+printf '%s\n' '-- stub bindings' >"$real_tree/user/.config/hypr/bindings.lua"
+printf '%s\n' '{' '}' >"$real_tree/user/.config/omarchy/extensions/omarchy-menu.jsonc"
+ln -s "$real_tree" "$base_home/link"
+if HOME=$base_home/link/user "$PLUGIN_DIR/bin/setup" 2>/tmp/ianm-setup-home-ancestor.err; then
+  bad "setup followed a symlink in HOME"
+else
+  ok "setup refuses a symlink in the HOME path"
+fi
+if [[ $(<"$real_tree/user/.config/hypr/hyprland.lua") == SECRET4 ]]; then
+  ok "setup did not rewrite through a symlink in HOME"
+else
+  bad "setup clobbered a file via a symlink in HOME"
+fi
+rm -rf "$base_home" "$real_tree"
+
 create_home=$(mktemp -d)
 mkdir -p "$create_home/.config/hypr"
 printf '%s\n' '-- stub hyprland' >"$create_home/.config/hypr/hyprland.lua"
